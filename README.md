@@ -1,0 +1,58 @@
+# Mac mini 任务监控
+
+本机只读网页。Python 标准库提供 HTTP、launchd 采集和 SQLite 记录；静态页面不依赖 CDN 或构建工具。
+
+此仓库仅保存看板源码。运行数据库、日志、缓存和本机凭据不纳入版本控制；任务路径与 launchd 注册信息在 config.py 中按部署机器调整。
+
+## 位置与入口
+
+- 源码：`/Users/yjl/.local/share/macmini-task-monitor/`
+- 数据库：`data/monitor.sqlite3`（WAL；仅当前用户可读）
+- 服务：`com.yjl.macmini-task-monitor`，默认端口 `8765`
+- 服务日志：`data/server.log`、`data/server.stderr.log`
+- 原 launchd 定义：`data/launchd-backups/`，保留原始文件，安装凭据在 SQLite metadata 中。
+- 当前访问：`http://127.0.0.1:8765`；Tailscale 内网 `http://100.96.142.32:8765`。登录后由 LaunchAgent 自动启动。
+
+安装或变更监听地址：
+
+```sh
+cd /Users/yjl/.local/share/macmini-task-monitor
+/opt/homebrew/bin/python3 install.py --bind 127.0.0.1
+```
+
+可重复添加 `--bind`，例如监听本机和当前 Tailscale 地址。只绑定显式指定的地址；新增域名需 `--allowed-host`。Tailscale 地址启动时不可用会自动重试绑定。
+
+## 记录约定
+
+- 四个自建 launchd 任务经过 `runner.py` 后执行原命令；保留工作目录、环境和标准输出，透传退出码与停止信号。SQLite 不可用时原任务继续执行。
+- 新记录有真实开始/结束/退出码，保存脱敏后的末尾 24 KB 日志。运行中每 5 秒落库。
+- 执行记录及总览最近活动默认隐藏“跳过”；结果筛选可选择“全部结果”或“已跳过”。统计仍保留全部记录。
+- PR 扫描成功且结构化输出 `queued: []` 时记为跳过；有待执行任务记为成功。失败、缺少队列信息的结果不推断为跳过。既有明确空队列记录会同步修正，首次修正前备份 SQLite 到 `data/backups/`。
+- 旧备份清单、日报凭据、PR 队列、秘塔 memory 按稳定来源键去重导入。缺失时间、退出码或耗时保留为空。
+- 监控接入之前的 PR 队列只保留业务已有状态，不能还原全部历史调度；网页明确标为历史凭据。
+- 秘塔仍由原 Codex 定时任务触发。监控只导入已有记录，不请求余额、不发送消息。
+- 每 15 秒采集状态。进程不存在或 PID 已复用的运行记录标为中断，实际结束时间保持未知。
+- 业务任务自动发现限当前用户自建 launchd 定时任务，另展示 Google 更新和几个已知常驻服务。未获取 root crontab。
+- 日历任务显示计划时间；间隔任务根据最近启动时间估计，不能保证休眠、唤醒后的实际时刻。
+- SQLite 当前保留全部记录，不自动删除历史。原业务日志仍由原脚本负责维护。
+
+## 维护
+
+局部验证（使用临时 SQLite，不执行真实业务或发送通知）：
+
+```sh
+/opt/homebrew/bin/python3 -m unittest discover -s tests -v
+node --check web/app.js
+```
+
+交互集成检查：`node tests/frontend.cjs`。使用现有 FastGPT 开发依赖中的 jsdom（可通过 `JSDOM_PATH` 指定），只在 DOM 模拟器中访问本机只读接口，不需要产品运行依赖。它不替代真实浏览器的布局与截图检查。
+
+健康检查：`GET /api/health`。其他接口：`GET /api/overview`、`GET /api/runs`（分页/筛选）、`GET /api/runs/{id}`、`GET /api/tasks/{id}/logs`。所有接口只读，无执行与配置入口。
+
+恢复业务原调度入口（只处理仍由本监控包装的任务，不清空账本）：
+
+```sh
+/opt/homebrew/bin/python3 install.py --restore-tasks
+```
+
+恢复或安装遇到正在运行的业务时，不要强制停止。安装器会等待；恢复操作需等任务结束后重试。

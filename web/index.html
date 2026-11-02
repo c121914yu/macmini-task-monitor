@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Mac mini 定时任务的只读监控：执行计划、运行记录、日志与任务详情。" />
+    <title>Mac mini · 任务监控</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#overview"><span class="brand-mark">m<span>·</span></span><span>mini monitor<small>任务运行观察台</small></span></a>
+      <div class="nav-label">工作空间</div>
+      <nav aria-label="主导航">
+        <a href="#overview" data-nav="overview"><span data-icon="grid"></span>任务总览</a>
+        <a href="#history" data-nav="history"><span data-icon="history"></span>执行记录<span id="history-count" class="nav-count"></span></a>
+        <a href="#services" data-nav="services"><span data-icon="server"></span>后台服务</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="host-card"><span class="host-icon" data-icon="server"></span><div><strong>Mac mini</strong><small id="host-name">正在连接主机</small></div><span class="live-dot"></span></div>
+        <div class="readonly"><span data-icon="lock"></span>只读观察 · Asia/Shanghai</div>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div class="breadcrumb">工作空间<span>/</span><strong id="breadcrumb">任务总览</strong></div><div class="topbar-right"><span id="sync-status" role="status"><i class="live-dot"></i>连接中</span><button id="refresh" class="icon-button" title="刷新数据" aria-label="刷新数据"><span data-icon="refresh"></span></button></div></header>
+      <main id="main" tabindex="-1"><div class="loading"><span class="loader"></span>正在读取本机任务…</div></main>
+      <footer><span>MINI MONITOR <span class="footer-dot">·</span> 本机 SQLite 记录</span><span id="footer-info">每 15 秒自动同步</span></footer>
+    </div>
+    <dialog id="run-dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>
