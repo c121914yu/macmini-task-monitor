@@ -36,6 +36,10 @@ cd /Users/yjl/.local/share/macmini-task-monitor
 - 日历任务显示计划时间；间隔任务根据最近启动时间估计，不能保证休眠、唤醒后的实际时刻。
 - SQLite 当前保留全部记录，不自动删除历史。原业务日志仍由原脚本负责维护。
 
+## FlowerCloud 流量日报
+
+每天北京时间 09:00，由 com.yjl.flowercloud-traffic 运行独立无头 Chrome，读取指定产品的已用流量与总流量并推送飞书。锁屏时可运行，不依赖桌面 Chrome，不调用模型。运行目录为 /Users/yjl/.local/share/flowercloud-traffic；config.json、browser-profile/、checks/ 均为本机私有数据，不入 Git。同日发送成功或响应不确定时不重复发送；异常只记录本地和看板，不发送虚假流量。
+
 ## 维护
 
 局部验证（使用临时 SQLite，不执行真实业务或发送通知）：

@@ -1,0 +1,6 @@
+{
+  "username": "YOUR_ACCOUNT",
+  "password": "YOUR_PASSWORD",
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME",
+  "product_url": "https://api-flowercloud.com/clientarea.php?action=productdetails&id=280585"
+}

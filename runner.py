@@ -143,6 +143,10 @@ def execute(options):
                 elif name == 'scan':
                     result = scan_result(event)
                     summary = result[1] if result is not None else f'扫描 #{event.get("scan_id")} 完成，待执行队列未知'
+                elif name in ('flowercloud_finished', 'flowercloud_skipped'):
+                    summary = event.get('summary') or 'FlowerCloud 流量检查结束'
+                    if name == 'flowercloud_skipped':
+                        status = 'skipped'
                 elif name == 'notification_sent':
                     summary = f'日报已发送 · {event.get("prs", "—")} 个 PR'
                 elif name == 'worker_finished':

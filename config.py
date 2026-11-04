@@ -16,6 +16,11 @@ METASO_ROOT = Path('/Users/yjl/.codex/automations/metaso-balance')
 AGENTS = Path('/Users/yjl/Library/LaunchAgents')
 
 TASKS = [
+    {'id': 'flowercloud-traffic', 'name': 'FlowerCloud 流量日报', 'icon': 'chart', 'category': 'work',
+     'source': 'launchd', 'label': 'com.yjl.flowercloud-traffic',
+     'description': '每天北京时间 09:00，独立无头 Chrome 读取已用/总流量并推送飞书。支持锁屏，无模型调用；同日通知去重。',
+     'script': '/Users/yjl/.local/share/flowercloud-traffic/run_check.py',
+     'logs': ['task.log', 'task.stderr.log'], 'log_root': '/Users/yjl/.local/share/flowercloud-traffic'},
     {'id': 'pr-scan', 'name': 'PR 扫描', 'icon': 'radar', 'category': 'work',
      'label': 'com.yjl.fastgpt-codex-pr-review-poller', 'source': 'launchd',
      'description': '发现 FastGPT PR、刷新队列与 PR 状态，并补偿未发送的审查日报。扫描本身不调用模型。',
