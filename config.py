@@ -43,7 +43,7 @@ TASKS = [
      'logs': ['daily-report.log', 'daily-report.stderr.log'], 'log_root': str(PR_ROOT)},
     {'id': 'fastgpt-backup', 'name': 'FastGPT 数据备份', 'icon': 'database', 'category': 'work',
      'label': 'com.yjl.fastgpt-daily-backup', 'source': 'launchd',
-     'description': '备份 MongoDB、PostgreSQL、MinIO，完成压缩流和 SHA256 校验后发布备份；保留最近 7 个自然日。',
+     'description': '备份 MongoDB、PostgreSQL、RustFS，保存对象与元数据，完成压缩流和 SHA256 校验后发布备份；保留最近 7 个自然日。',
      'script': str(BACKUP_ROOT / 'backup.py'), 'logs': ['launchd.log'], 'log_root': str(BACKUP_ROOT)},
     {'id': 'com.yjl.weekly-progress-reminder', 'name': '每周进度提醒', 'icon': 'clock', 'category': 'work',
      'label': 'com.yjl.weekly-progress-reminder', 'source': 'launchd',
