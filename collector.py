@@ -300,6 +300,7 @@ def normalize_empty_scans():
 def collect():
     """每轮保存完整快照和采集错误；单一业务文件损坏不会停止其他任务的监控。"""
     now = time.time()
+    store.prune_runs(now)
     normalize_empty_scans()
     errors = []
     try:

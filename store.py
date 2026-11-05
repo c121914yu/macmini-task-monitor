@@ -139,6 +139,22 @@ def reconcile_discovered_tasks(definitions):
     return merged
 
 
+def prune_runs(now=None):
+    """滚动保留七天执行记录；运行中的记录留到结束后再清理。
+
+    截止点同时约束历史导入，避免下一轮从旧日志重新导入已过期的记录。
+    SQLite 删除后的空页由新记录复用，不在采集循环内执行阻塞性的 VACUUM。
+    """
+    now = time.time() if now is None else now
+    cutoff = now - 7 * 86400
+    with connect() as db:
+        removed = db.execute("DELETE FROM runs WHERE created_at<? AND status<>'running'",
+                             (cutoff,)).rowcount
+        db.execute('INSERT INTO metadata VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                   ('run_retention', json.dumps({'days': 7, 'cutoff': cutoff, 'checked_at': now})))
+    return removed
+
+
 def insert_run(run):
     """真实执行与历史凭据共用账本；导入冲突时保留最初记录，不重复计数。"""
     fields = ['id', 'task_id', 'external_key', 'kind', 'status', 'created_at', 'started_at', 'finished_at', 'heartbeat_at', 'pid', 'process_start', 'exit_code', 'summary', 'details', 'log_tail']
@@ -147,6 +163,10 @@ def insert_run(run):
     values['summary'] = redact(values['summary'])[:2000]
     values['log_tail'] = redact(values['log_tail'])[-24000:]
     with connect() as db:
+        retention = db.execute('SELECT value FROM metadata WHERE key=?', ('run_retention',)).fetchone()
+        if (retention and values.get('status') != 'running'
+                and values['created_at'] < json.loads(retention['value'])['cutoff']):
+            return
         db.execute(f'''INSERT INTO runs ({",".join(fields)}) VALUES ({",".join("?" for _ in fields)})
             ON CONFLICT(external_key) DO UPDATE SET status=excluded.status,started_at=excluded.started_at,
             finished_at=excluded.finished_at,exit_code=excluded.exit_code,summary=excluded.summary,

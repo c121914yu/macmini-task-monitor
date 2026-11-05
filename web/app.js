@@ -113,7 +113,7 @@ function historyFilters(taskId) {
 }
 
 function historyPanel(taskId = '') {
-  return `<section class="panel"><div class="panel-heading"><div><h2>执行记录</h2><p class="panel-description">默认隐藏跳过记录；可通过结果筛选查看全部</p></div>${historyFilters(taskId)}</div><div id="history-content" aria-live="polite">${empty('正在读取执行记录…')}</div><div class="panel-foot">${icon('info')}历史凭据不是完整执行历史。没有可靠时间的记录显示“未知”，不会补成零耗时。</div></section>`;
+  return `<section class="panel"><div class="panel-heading"><div><h2>执行记录</h2><p class="panel-description">仅保留最近 7 天；默认隐藏跳过记录，可通过结果筛选查看</p></div>${historyFilters(taskId)}</div><div id="history-content" aria-live="polite">${empty('正在读取执行记录…')}</div><div class="panel-foot">${icon('info')}历史凭据不是完整执行历史。没有可靠时间的记录显示“未知”，不会补成零耗时。</div></section>`;
 }
 
 function runTable(result, taskId) {

@@ -110,6 +110,38 @@ class MonitorTests(unittest.TestCase):
             with store.connect() as db:
                 db.execute('DROP TRIGGER block_alias_delete')
 
+    def test_seven_day_retention_preserves_boundary_and_running(self):
+        now = 2000000
+        cutoff = now - 7 * 86400
+        for name,stamp,status in [('old',cutoff-1,'success'),('boundary',cutoff,'success'),
+                                  ('new',now,'failed'),('active',cutoff-100,'running')]:
+            store.insert_run({'id':name,'external_key':name,'task_id':'test','kind':'execution',
+                              'created_at':stamp,'status':status})
+        self.assertEqual(store.prune_runs(now), 1)
+        self.assertIsNone(store.read_run('old'))
+        self.assertIsNotNone(store.read_run('boundary'))
+        self.assertIsNotNone(store.read_run('new'))
+        self.assertEqual(store.read_run('active')['status'], 'running')
+        store.update_run('active',status='success',finished_at=now)
+        self.assertEqual(store.prune_runs(now), 1)
+        self.assertIsNone(store.read_run('active'))
+        self.assertEqual(store.prune_runs(now), 0)
+
+    def test_expired_history_cannot_be_reimported(self):
+        now = 2000000
+        cutoff = now - 7 * 86400
+        store.prune_runs(now)
+        collector.import_record({'task_id':'test','external_key':'expired','created_at':cutoff-1,
+                                 'status':'success','summary':'old'})
+        self.assertEqual(store.list_runs({})['total'], 0)
+        collector.import_record({'task_id':'test','external_key':'boundary','created_at':cutoff,
+                                 'status':'success','summary':'kept'})
+        self.assertEqual(store.list_runs({})['total'], 1)
+        # 旧任务恢复时仍可记录正在运行状态，完成后按原创建时间回收。
+        store.insert_run({'id':'active','external_key':'active','task_id':'test','kind':'execution',
+                          'created_at':cutoff-10,'status':'running'})
+        self.assertIsNotNone(store.read_run('active'))
+
     def test_exit_code_and_unicode_and_redaction(self):
         result = self.runner('import sys;print("运行完成 中文");print("Authorization: Bearer fake-test-value-123456789",file=sys.stderr);sys.exit(7)')
         self.assertEqual(result.returncode, 7)
