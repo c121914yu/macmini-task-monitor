@@ -1,0 +1,74 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -369,6 +369,9 @@
+         f'唯一工作目录 {run["worktree"]}。当前版本尚未发布且还没有文档时，创建中英文页面及必要导航。'
+         '按 skill 完整读取代码证据，先中文，再实际加载 doc-i18n 及其翻译规范、术语库生成英文。'
+         '后续更新结合新增差异核对全版本最终行为，删除已撤回或被覆盖的内容，保留有依据的人工补充。'
++        '上一正式版本可能来自维护分支而非 main 祖先：使用 git diff <base> <target> 的两端最终内容，'
++        '不得改用三点 diff 或 merge-base 替换发布基准；提交号不同不代表修复缺失或功能撤回，'
++        '对维护分支独有差异须核对 main 等价实现，无法确认时明确记录缺口。'
+         f'上一轮覆盖目标：{run.get("previous_target") or "首次全量"}。'
+         f'主工作区 pro 仓库 {run["repo_root"]}/pro 可供只读分析；'
+         'Pro 必须使用主仓库两端实际 gitlink commit，不得以 Pro main 替代。'
+@@ -600,7 +603,15 @@
+         raise RuntimeError('目标版本已正式发布，停止进行中文档的发布')
+     paths = scoped_changes(config, run)
+     if paths:
+-        git(wt, ['add', '--', *paths])
++        # main 的删除/重命名已经在合并索引里；只补暂存本轮尚未暂存的文档。
++        # 对已暂存删除路径再次 git add 会因路径已不在索引中而失败。
++        unstaged = set(git(wt, ['diff', '--name-only', '-z']).split('\0')) - {''}
++        unstaged.update(filter(None, git(wt, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0')))
++        check_paths(unstaged, config['version'])
++        if unstaged:
++            git(wt, ['add', '-A', '--', *sorted(unstaged)])
++        # 同时校验索引，防止工作区内容掩盖暂存的越界产品修改。
++        check_paths(git(wt, ['diff', '--cached', '--name-only', run['target']]).splitlines(), config['version'])
+         git(wt, ['commit', '-m', f'docs: update {config["version"]} release notes'])
+     run['content_commit'] = git(wt, ['rev-parse', 'HEAD'])
+     run['status'] = 'publishing'
+@@ -681,9 +692,6 @@
+         return
+     git(repo, ['fetch', '--tags', 'upstream', '+refs/heads/main:refs/remotes/upstream/main'])
+     target = git(repo, ['rev-parse', 'upstream/main^{commit}'])
+-    base = git(repo, ['rev-parse', f'{base_tag}^{{commit}}'])
+-    if git(repo, ['merge-base', base, target]) != base:
+-        raise RuntimeError('上一 Release 不在 main 历史中，拒绝猜测比较范围')
+     # 准备、生成、验证、发布任一阶段未完成，都接续同一固定范围与重试账本。
+     # 新 main 留到当前任务完成后再处理，避免跨快照复用未完成 merge 和重新计算重试次数。
+     pending = read(Path(state['active_run']) / 'state.json') if state.get('active_run') else {}
+@@ -691,6 +699,10 @@
+             and pending.get('status') not in ('completed', 'superseded')):
+         run = pending
+     else:
++        base = git(repo, ['rev-parse', f'{base_tag}^{{commit}}'])
++        # 维护分支正式 Release 可以不属于 main 的祖先；仍须属于同一历史。
++        # 文档分析比较两个固定提交的最终树，不能用 merge-base 替换正式版本。
++        git(repo, ['merge-base', base, target])
+         prs = pull_requests(repo, (state['checked_sha'], target)) if state.get('checked_sha') and state['checked_sha'] != target else []
+         need = not state.get('last_success') or base != state.get('base_sha') or bool(prs)
+         if not need:
+@@ -706,10 +718,11 @@
+             'worktree': config['worktree'], 'repo_root': config['repo_root'],
+             'folder': str(folder), 'status': 'pending', 'attempts': 0}
+     if options.check_only:
+-        emit('docs_pending', version=version, base=base_tag, target=run['target'],
++        emit('docs_pending', version=version, base=run['base_tag'], target=run['target'],
+              merged_prs=len(run.get('prs', [])), model_called=False)
+         return
+-    if run['attempts'] >= config.get('max_attempts', 5):
++    if run['attempts'] >= max(config.get('max_attempts', 5),
++                              run.get('manual_recovery', {}).get('attempt_limit', 0)):
+         emit('docs_retry_limit', version=version, attempts=run['attempts'])
+         return
+     run['attempts'] += 1
+@@ -739,8 +752,7 @@
+         emit('docs_completed', version=version, pr=run.get('pr_number'), url=run.get('pr_url'),
+              no_change=run.get('no_change', False))
+     except BaseException as error:
+-        if not run.get('content_commit'):
+-            run['model_completed'] = False
++        # 已完成的生成凭据跨验证/发布失败保留，恢复时不重复调用模型。
+         run.update({'status': 'error', 'error': str(error)[-2000:], 'failed_at': time.time()})
+         save_run(run)
+         state['status'] = 'error'
