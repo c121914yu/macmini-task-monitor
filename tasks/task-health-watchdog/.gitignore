@@ -1,0 +1,7 @@
+__pycache__/
+state.json
+task.lock
+task.log
+task.stderr.log
+incidents/
+verification/

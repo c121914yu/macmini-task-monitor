@@ -1,0 +1,8 @@
+{
+  "minimum_failures": 3,
+  "persistent_seconds": 3600,
+  "retry_seconds": 3600,
+  "max_repair_rounds": 3,
+  "max_repairs_per_scan": 1,
+  "max_snapshot_age": 180
+}
