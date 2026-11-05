@@ -1,0 +1,20 @@
+[
+  {
+    "patch": "pr-review-feishu.patch",
+    "target": "/Users/yjl/.codex/experiments/pr-review-client-probe/feishu_notify.py",
+    "before_sha256": "a0f401f605c863b0c43a20507e657e0c34ff73f40dbccf4af669a611280ac4ca",
+    "after_sha256": "420952204709e3a7d3ff53462de86f65bf5c2b81bf1ec88e1381438b5ccb3e8e"
+  },
+  {
+    "patch": "metaso-webhook.patch",
+    "target": "/Users/yjl/.local/share/metaso-balance/check_balance.mjs",
+    "before_sha256": "2c6f2da7488fb549101d373ae429f64cc3c927633a8e4f823127fcfe95a76c50",
+    "after_sha256": "3ab197b5ffe2f0533ac5d52cf787dcf8d25620ad8b9195dd8f131cef4b2f0815"
+  },
+  {
+    "patch": "metaso-timeout.patch",
+    "target": "/Users/yjl/.local/share/metaso-balance/run_check.py",
+    "before_sha256": "ef1cc328a81b5dab9b519dfb9274bc922e99105b906b9bc8c9e1136a41ccb710",
+    "after_sha256": "32d2e82ebf674d0c3c4f6c9a739755c8e7a22e48755a56c31629bf530497c8cf"
+  }
+]

@@ -40,6 +40,12 @@ cd /Users/yjl/.local/share/macmini-task-monitor
 
 每天北京时间 09:00，由 com.yjl.flowercloud-traffic 运行独立无头 Chrome，读取指定产品的已用流量与总流量并推送飞书。锁屏时可运行，不依赖桌面 Chrome，不调用模型。运行目录为 /Users/yjl/.local/share/flowercloud-traffic；config.json、browser-profile/、checks/ 均为本机私有数据，不入 Git。同日发送成功或响应不确定时不重复发送；异常只记录本地和看板，不发送虚假流量。
 
+## Webhook 限流重试
+
+所有 Mac mini 自动任务共用 /Users/yjl/.local/share/webhook-delivery：明确收到 HTTP 429 或飞书 11232/11233/11247 后，固定等待 60 秒，最多重试 3 次（总计最多 4 次请求）。只重发原消息；网络结果未知不自动重发，耗尽后不被自动补偿重置。覆盖 PR 通知/日报、升级文档、周提醒、秘塔余额和 FlowerCloud；调度时间保持原设置。
+
+共享实现位于 lib/webhook-delivery，部署到上述运行目录；Python 任务调用 send，Node 任务调用 postWebhook。patches/webhook-retry 保存原有运行任务的零上下文补丁与前后 SHA256，使用前核对 targets.json，按目标文件应用（git apply --unidiff-zero），避免覆盖其他业务改动。FlowerCloud 的凭据及 webhook-attempts/ 等运行记录不纳入版本控制。
+
 ## 维护
 
 局部验证（使用临时 SQLite，不执行真实业务或发送通知）：

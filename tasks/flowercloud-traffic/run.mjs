@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readUsage } from './browser.mjs';
+import { randomUUID } from 'node:crypto';
+import { postWebhook } from '/Users/yjl/.local/share/webhook-delivery/webhook_delivery.mjs';
 import { buildCard, shanghaiDate, shouldSkip, redact } from './flow.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -14,21 +16,9 @@ async function save(file, data) {
   await fs.rename(temp, file);
 }
 
-/** 一次请求发送指定 webhook；响应未知时保留 unknown，禁止盲目重复通知。 */
-export async function sendCard(config, card) {
-  const target = new URL(config.webhook_url);
-  if (target.origin !== 'https://open.feishu.cn' ||
-      !target.pathname.startsWith('/open-apis/bot/v2/hook/')) throw new Error('未授权的通知地址');
-  const response = await fetch(target, { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card),
-    signal: AbortSignal.timeout(15000), redirect: 'error' });
-  const body = await response.json();
-  if (!response.ok || body.code !== 0) {
-    const error = new Error('飞书明确拒绝通知，HTTP ' + response.status + '，code ' + body.code);
-    error.definiteRejection = body.code !== undefined;
-    throw error;
-  }
-  return { code: body.code };
+/** 所有 webhook 共用固定 60 秒、最多 3 次重试的传输策略。 */
+export async function sendCard(config, card, options = {}) {
+  return postWebhook(config.webhook_url, card, options);
 }
 
 /** 锁由 run_check.py 管理；先查发送凭据，再采集真实流量，发送前写意图避免中断后重复。 */
@@ -48,9 +38,13 @@ export async function execute({ root = ROOT, checkOnly = false, read = readUsage
     return { event: 'flowercloud_skipped', date: day, status: previous.status,
       summary: '当天已有发送凭据，本次未重复发送' };
   }
-  let record = { date: day, started_at: new Date().toISOString(), status: 'reading' };
+  let record = { date: day, started_at: new Date().toISOString(), status: 'reading',
+    delivery_attempts: previous?.delivery_attempts || [] };
   try {
-    const usage = await read(config, root);
+    const captured = previous?.usage?.captured_at;
+    const sameDay = captured && shanghaiDate(new Date(captured)) === day;
+    const usage = !checkOnly && previous?.status === 'failed' && sameDay
+      ? previous.usage : await read(config, root);
     record = { ...record, usage, status: 'checked' };
     const card = buildCard(usage, day);
     if (checkOnly) {
@@ -60,9 +54,24 @@ export async function execute({ root = ROOT, checkOnly = false, read = readUsage
     }
     record.status = 'sending';
     await save(ledgerPath, record);
-    try { await send(config, card); }
+    let initialAttempts = Math.max(0, ...record.delivery_attempts.map(x => x.attempt || 0));
+    const priorLimit = /code[ =]+(?:11232|11233|11247)/.test(previous?.error || '');
+    if (priorLimit && initialAttempts === 0) initialAttempts = 1;
+    const last = record.delivery_attempts.at(-1);
+    const notBefore = last?.next_attempt_at ??
+      (priorLimit && previous?.finished_at ? Date.parse(previous.finished_at) / 1000 + 60 : undefined);
+    record.delivery_journal = path.join(root, 'webhook-attempts', day + '-' + randomUUID() + '.json');
+    await save(ledgerPath, record);
+    try {
+      const result = await send(config, card, {
+        journalPath: record.delivery_journal, initialAttempts, notBefore,
+      });
+      if (result?.attempts) record.delivery_attempts.push(...result.attempts);
+    }
     catch (error) {
-      record.status = error.definiteRejection ? 'failed' : 'unknown';
+      if (error.attempts) record.delivery_attempts.push(...error.attempts);
+      record.status = error.deliveryStatus === 'rate_limited' ? 'rate_limited' :
+        error.definiteRejection ? 'failed' : 'unknown';
       throw error;
     }
     record.status = 'sent';
@@ -73,7 +82,7 @@ export async function execute({ root = ROOT, checkOnly = false, read = readUsage
       ...usage, summary: '已用 ' + usage.used_display + ' / ' + usage.total_display + '，飞书已发送' };
   } catch (error) {
     if (['sent', 'sending'].includes(record.status)) record.status = 'unknown';
-    else if (!['unknown', 'failed'].includes(record.status)) record.status = 'failed';
+    else if (!['unknown', 'failed', 'rate_limited'].includes(record.status)) record.status = 'failed';
     record.error = redact(error.message || error, config).slice(0, 1200);
     record.finished_at = new Date().toISOString();
     const file = checkOnly ? path.join(root, 'verification', 'failed-' + Date.now() + '.json') : ledgerPath;

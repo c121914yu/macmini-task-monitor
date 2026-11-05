@@ -1,0 +1,70 @@
+--- a/feishu_notify.py
++++ b/feishu_notify.py
+@@ -11,0 +12,4 @@
++import sys
++sys.path.insert(0, str(Path.home() / '.local/share/webhook-delivery'))
++from webhook_delivery import send as deliver_webhook, DeliveryError, LIMIT_CODES
++
+@@ -221 +225 @@
+-    """纯 HTTP 发送卡片；先保存发送意图，超时或不确定结果禁止盲目重发。"""
++    """保留原消息去重；统一限流后等待 60 秒，最多重试 3 次，不重做业务处理。"""
+@@ -238,5 +242,11 @@
+-        state = json.loads(path.read_text()) if path.exists() else {}
+-        if state.get('status') in ('sent', 'sending', 'unknown'):
+-            return {'event': 'notification_already_sent' if state['status'] == 'sent'
+-                    else 'notification_needs_inspection', **context}
+-        state = {'status': 'sending', **delivery.get('identity', {}), 'attempted_at': time.time()}
++        previous = json.loads(path.read_text()) if path.exists() else {}
++        if previous.get('status') in ('sent', 'sending', 'unknown', 'rate_limited'):
++            event = 'notification_already_sent' if previous['status'] == 'sent' else (
++                'notification_retry_exhausted' if previous['status'] == 'rate_limited'
++                else 'notification_needs_inspection')
++            return {'event': event, **context}
++        initial = 0
++        if previous.get('code') in LIMIT_CODES or previous.get('status') == 'retry_wait':
++            initial = max((x.get('attempt', 0) for x in previous.get('attempts', [])), default=1)
++        state = {'status': 'sending', **delivery.get('identity', {}),
++                 'attempted_at': time.time(), 'attempts': previous.get('attempts', [])}
+@@ -244,2 +254,13 @@
+-        request = Request(webhook, data=json.dumps(payload, ensure_ascii=False).encode(),
+-                          headers={'Content-Type': 'application/json'}, method='POST')
++
++        def progress(evidence):
++            # 重试等待与每次发送前都落盘，避免进程中断后误判可重发。
++            attempts = state['attempts']
++            if attempts and attempts[-1]['attempt'] == evidence['attempt']:
++                attempts[-1].update(evidence)
++            else:
++                attempts.append(dict(evidence))
++            state['status'] = evidence['status']
++            if 'code' in evidence:
++                state['code'] = evidence['code']
++            save_state(path, state)
++
+@@ -247,9 +268,6 @@
+-            with urlopen(request, timeout=20) as response:
+-                result = json.loads(response.read())
+-            if result.get('code') != 0:
+-                state.update({'status': 'rejected', 'code': result.get('code')})
+-                save_state(path, state)
+-                raise RuntimeError(f'Feishu rejected the card (code={result.get("code")})')
+-        except HTTPError as error:
+-            state.update({'status': 'rejected' if 400 <= error.code < 500 else 'unknown',
+-                          'http_status': error.code})
++            deliver_webhook(webhook, payload, opener=urlopen, on_attempt=progress, initial_attempts=initial,
++                not_before=next((x.get('next_attempt_at') for x in reversed(previous.get('attempts', []))
++                                 if x.get('next_attempt_at')), None))
++        except DeliveryError as error:
++            state.update({'status': error.status, 'code': error.code,
++                          'http_status': error.http_status, 'error_type': error.error_type})
+@@ -257 +275 @@
+-            raise RuntimeError(f'Feishu returned HTTP {error.code}') from None
++            raise RuntimeError(str(error)) from None
+@@ -259,4 +277,3 @@
+-            if state['status'] == 'sending':
+-                state.update({'status': 'unknown', 'error_type': type(error).__name__})
+-                save_state(path, state)
+-            raise RuntimeError(f'Feishu notification not confirmed ({state["status"]})') from None
++            state.update({'status': 'unknown', 'error_type': type(error).__name__})
++            save_state(path, state)
++            raise RuntimeError('Feishu notification not confirmed (unknown)') from None

@@ -22,7 +22,7 @@ test('缺失、零总量、多个指标拒绝；不同单位保留原值而不�
 test('北京时间边界和发送凭据状态', () => {
   assert.equal(shanghaiDate(new Date('2026-11-04T15:59:59Z')), '2026-11-04');
   assert.equal(shanghaiDate(new Date('2026-11-04T16:00:00Z')), '2026-11-05');
-  for (const status of ['sent', 'sending', 'unknown']) assert.equal(shouldSkip({ status }), true);
+  for (const status of ['sent', 'sending', 'unknown', 'rate_limited']) assert.equal(shouldSkip({ status }), true);
   for (const status of ['failed', 'reading', 'checked']) assert.equal(shouldSkip({ status }), false);
 });
 test('卡片只带流量，凭据与 URL 认证参数脱敏', () => {
@@ -100,5 +100,43 @@ test('推送后持久化失败仍保留发送意图，避免下一轮重复通�
     finally { await fs.chmod(checks, 0o700); }
     assert.equal((await execute({ ...options, send: async () => assert.fail('duplicate') })).event,
       'flowercloud_skipped');
+  });
+});
+
+test('恢复当天明确限流失败时复用原流量，原请求计入总次数', async () => {
+  await fixture(async root => {
+    await fs.mkdir(path.join(root, 'checks'));
+    const usage = { ...parseUsage('25.64GB / 150GB'), captured_at: '2026-11-05T01:00:10Z' };
+    await fs.writeFile(path.join(root, 'checks/2026-11-05.json'), JSON.stringify({
+      status: 'failed', usage, finished_at: '2026-11-05T01:00:15Z',
+      error: '飞书明确拒绝通知，HTTP 200，code 11232'
+    }));
+    const result = await execute({ root, now: new Date('2026-11-05T01:10:00Z'),
+      read: async () => assert.fail('must not query browser again'),
+      send: async (_, card, options) => {
+        assert.equal(options.initialAttempts, 1);
+        assert.equal(options.notBefore, Date.parse('2026-11-05T01:01:15Z') / 1000);
+        assert.match(JSON.stringify(card), /25.64 GB/);
+        return { attempts: [{ attempt: 2, status: 'sent' }] };
+      } });
+    assert.equal(result.notified, true);
+    assert.equal(result.captured_at, usage.captured_at);
+  });
+});
+test('限流重试耗尽后同日再次执行不重置预算', async () => {
+  await fixture(async root => {
+    let sends = 0;
+    const options = { root, now: new Date('2026-11-05T01:00:00Z'),
+      read: async () => parseUsage('25GB / 150GB'),
+      send: async () => {
+        sends++;
+        const error = new Error('limited');
+        error.deliveryStatus = 'rate_limited'; error.definiteRejection = true;
+        error.attempts = [{ attempt: 4, status: 'rate_limited' }];
+        throw error;
+      } };
+    await assert.rejects(execute(options), /limited/);
+    assert.equal((await execute(options)).event, 'flowercloud_skipped');
+    assert.equal(sends, 1);
   });
 });

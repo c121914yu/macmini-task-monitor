@@ -24,7 +24,7 @@ def main():
             ["/opt/homebrew/bin/node", str(ROOT / "run.mjs"), *sys.argv[1:]],
             cwd=ROOT, start_new_session=True)
         try:
-            return process.wait(timeout=150)
+            return process.wait(timeout=600)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGTERM)
             try:
@@ -32,7 +32,7 @@ def main():
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
-            print(json.dumps({"event": "flowercloud_failed", "error": "检查超过 150 秒"}), flush=True)
+            print(json.dumps({"event": "flowercloud_failed", "error": "检查超过 600 秒"}), flush=True)
             return 124
 
 

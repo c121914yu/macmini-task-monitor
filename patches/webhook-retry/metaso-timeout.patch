@@ -1,0 +1,11 @@
+--- a/run_check.py
++++ b/run_check.py
+@@ -29 +29 @@
+-    """保留原查询与飞书逻辑；120 秒封顶，失败透传非零退出码。"""
++    """保留原查询与飞书逻辑；600 秒封顶，失败透传非零退出码。"""
+@@ -38 +38 @@
+-                                capture_output=True, text=True, timeout=120)
++                                capture_output=True, text=True, timeout=600)
+@@ -45 +45 @@
+-        error += '\n[ERROR] 余额检查超过 120 秒，已终止。\n'
++        error += '\n[ERROR] 余额检查超过 600 秒，已终止。\n'

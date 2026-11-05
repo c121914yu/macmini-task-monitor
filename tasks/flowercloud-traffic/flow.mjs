@@ -30,7 +30,7 @@ export function shanghaiDate(now = new Date()) {
 
 /** 同日发送成功或结果不确定时停止重复发送；明确失败可由人工或下轮任务重试。 */
 export function shouldSkip(record) {
-  return ['sent', 'sending', 'unknown'].includes(record?.status);
+  return ['sent', 'sending', 'unknown', 'rate_limited'].includes(record?.status);
 }
 
 /** 卡片仅包含用户指定的流量数据，不携带账号、认证或订阅信息。 */
