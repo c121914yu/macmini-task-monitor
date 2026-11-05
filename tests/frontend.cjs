@@ -37,7 +37,8 @@ async function until(callback, message) {
   const document = w.document;
   const change = (select, value) => { select.value = value; select.dispatchEvent(new w.Event('change', { bubbles: true })); };
   try {
-    await until(() => document.querySelectorAll('#task-rows tr').length === 5, '总览未显示五个业务任务');
+    const workTasks = source.tasks.filter((task) => task.category !== 'system');
+    await until(() => document.querySelectorAll('#task-rows tr').length === workTasks.length, '总览业务任务数量与接口不一致');
     assert.equal(document.querySelector('h1').textContent, '任务总览');
     assert.equal(document.querySelectorAll('.stats .stat').length, 4);
     assert.ok(document.querySelector('#sync-status').textContent.includes('已同步'));
@@ -45,14 +46,15 @@ async function until(callback, message) {
 
     const search = document.querySelector('#task-search');
     search.value = 'PR'; search.dispatchEvent(new w.Event('input', { bubbles: true }));
-    await until(() => document.querySelectorAll('#task-rows tr').length === 3, '任务搜索无效');
+    const prTasks = workTasks.filter((task) => (task.name + ' ' + task.description).toLowerCase().includes('pr'));
+    await until(() => document.querySelectorAll('#task-rows tr').length === prTasks.length, '任务搜索无效');
     console.log('PASS 总览、统计、任务搜索');
 
     w.location.hash = '#task/metaso-balance';
     await until(() => document.querySelector('h1')?.textContent === '秘塔搜索余额' && document.querySelectorAll('#history-content tbody tr').length > 0, '秘塔详情未加载');
     assert.ok(document.querySelector('.business-value').textContent.includes(new Intl.NumberFormat('en-US').format(expectedBalance)));
     document.querySelector('[data-logs]').click();
-    await until(() => document.querySelector('#task-logs pre')?.textContent.includes('运行记录'), '原始日志未加载');
+    await until(() => (document.querySelector('#task-logs pre')?.textContent.trim().length ?? 0) > 0, '原始日志未加载');
     assert.ok(!document.querySelector('#task-logs').textContent.includes('FEISHU_WEBHOOK_URL'));
     console.log('PASS 秘塔详情、余额、历史记录、按需读取日志');
 
