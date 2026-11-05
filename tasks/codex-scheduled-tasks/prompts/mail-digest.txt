@@ -1,0 +1,93 @@
+每天汇总昨天收到的邮件，范围包括：
+1. Gmail 邮箱，显示名称固定为：Gmail c121914yjl@gmail.com。优先使用当前已连接的 Gmail；如果 Gmail 连接器不可用，可使用用户已提供的 Gmail IMAP 应用专用密码通过 imap.gmail.com:993 读取 INBOX。
+2. 以下 3 个飞书 IMAP 邮箱的 INBOX：
+   - yujinlong@sealos.io / IMAP 密码：<由宿主 IMAP 脚本读取，不向模型提供>
+   - fastgpt-ssl@sealos.io / IMAP 密码：<由宿主 IMAP 脚本读取，不向模型提供>
+   - cloudfsatgptio-ssl@fastgpt.io / IMAP 密码：<由宿主 IMAP 脚本读取，不向模型提供>
+
+飞书 IMAP 配置：
+- 收信服务器：imap.feishu.cn
+- IMAP SSL 端口：993
+- SMTP 信息仅供记录，汇总任务不要发信：smtp.feishu.cn SSL 465
+
+读取与状态修改要求：
+- 读取 Gmail 和飞书 IMAP 邮件时仍必须使用无副作用方式：Gmail 只搜索/读取；IMAP 使用 readonly/select 或 EXAMINE，并使用 BODY.PEEK，而不是 BODY[] 或 RFC822，避免在汇总前把邮件标记为已读。
+- 汇总阶段必须记录每封最终写入汇总的邮件标识：Gmail 记录 message_id；IMAP 记录邮箱、INBOX、UID。被日期过滤排除、读取失败、或未写入汇总的邮件不能进入待标记列表。
+- 只有当完整邮件汇总卡片成功发送到飞书后，才能把“本次已经写入汇总”的邮件标记为已读。若汇总拆成多张卡片，必须全部发送成功后再标记。若汇总卡片发送失败，即使错误卡片发送成功，也不要把邮件标记为已读。
+- Gmail 标记已读方式：仅对已汇总的精确 message_id 移除 UNREAD 标签；不要归档、删除、移动、加标签或修改其他状态。
+- IMAP 标记已读方式：发送成功后重新连接对应邮箱，只选择 INBOX，可用读写 SELECT；仅对已汇总 UID 执行 `UID STORE <uid> +FLAGS.SILENT (\Seen)`。不要读取 Sent/Drafts/Trash，不要修改未汇总 UID。
+- 标记已读失败时，不要回滚已发送的汇总；对失败邮箱或 Gmail 至少重试 2 次，使用 10 秒、30 秒等短间隔。最终仍失败时，只在本线程简短说明“汇总已发送，但标记已读失败”，附非敏感错误类型；不要展示密码、token、验证码或完整敏感响应。
+- 不要在飞书通知、本线程回复、日志摘要中展示任何邮箱密码、应用专用密码或验证码原文。验证码邮件可以说明“收到验证码邮件”，不要输出具体验证码。
+- 飞书 IMAP 邮箱只读取 INBOX。除非用户明确要求，不要读取 Sent/Drafts/Trash。
+
+日期范围：
+- “昨天”按 Asia/Shanghai 本地日期计算，例如 YYYY-MM-DD 00:00:00 到 23:59:59。
+- Gmail 搜索要拉宽到相邻日期后按邮件时间手动筛选，避免时区边界误差。
+- IMAP 搜索可先按 SINCE/BEFORE 拉宽到相邻日期，然后解析 INTERNALDATE 或 Date 头，按 Asia/Shanghai 本地日期过滤。
+
+分类只使用三个重要性标签：重要、普通、垃圾。
+- 重要：安全风险、资源或服务过期提示、付款/账单/欠费/扣费/发票、商业合作/客户/合同/报价/采购、面试/招聘机会、明确需要回复或处理的个人/工作事项、会影响我当前使用的服务故障。
+- 普通：正常往来、验证码/登录确认类邮件（不要展示验证码原文）、产品状态更新、技术资讯、学术推荐、社区摘要、无需立即处理但可能有参考价值的邮件。
+- 垃圾：明显广告、促销、抽奖、营销、低价值推荐、内容订阅摘要、低价值社区摘要、Spam 标签邮件或基本不需要关注的邮件。
+
+输出结构按邮箱分组，而不是按重要性分组。每个邮箱下面列出该邮箱昨天收到的邮件；同一主题的多封状态更新邮件可以合并成一个邮件条目。每条摘要要包含发件人、关键内容、需要我处理的动作和相关时间点。
+
+格式使用紧凑卡片式 Markdown，不要直接使用 #、##、###、####：
+
+<text_tag color="blue">邮箱</text_tag> **Gmail c121914yjl@gmail.com**
+
+<text_tag color="red">重要</text_tag> **邮件名**
+<font color="grey">发件人 · 时间</font>
+
+邮件摘要。
+
+**处理**：需要我做什么；如果无需处理，写“无需处理”。
+
+---
+
+<text_tag color="yellow">普通</text_tag> **邮件名**
+<font color="grey">发件人 · 时间</font>
+
+邮件摘要。
+
+**处理**：无需处理。
+
+<hr/>
+
+<text_tag color="blue">邮箱</text_tag> **yujinlong@sealos.io**
+
+无
+
+<hr/>
+
+邮箱标题标签固定使用 `<text_tag color="blue">邮箱</text_tag>`。重要性标签颜色：重要用 red，普通用 yellow，垃圾用 grey。邮件名用 **粗体**。发件人与时间放在 `<font color="grey">...</font>` 中。各邮箱之间用 `<hr/>` 分隔，同一邮箱内邮件之间用 `---` 分隔。
+
+如果某个邮箱没有邮件，保留该邮箱标题，并写“无”。可以使用少量 emoji，但不要让标题过大或排版拥挤。优先使用 `<text_tag>`、`<font color="grey">`、`<hr/>`、粗体和短段落来做视觉层次。
+
+飞书卡片标题必须是：邮件汇总(YYYY-MM-DD)，其中 YYYY-MM-DD 是被汇总的昨天日期。
+
+汇总完成后，将完整汇总内容通过飞书自定义机器人 webhook 发给我。Webhook 地址为：<由本机通知脚本读取私有目标> 。
+
+飞书发送格式必须使用官方“自定义机器人发送飞书卡片”的 JSON 2.0 结构：
+- 外层：{"msg_type":"interactive","card":{...}}
+- card 内必须显式包含 "schema":"2.0"
+- card.config 至少包含 {"update_multi":true,"wide_screen_mode":true}，可包含 summary.content
+- 正文必须放在 card.body.elements 中，不要放在 card.elements 中
+- Markdown 文本使用 card.body.elements 数组里的组件：{"tag":"markdown","content":"<Markdown>","text_align":"left","text_size":"normal","margin":"0px 0px 8px 0px"}
+- header 使用 card.header.title，content 设置为 邮件汇总(YYYY-MM-DD)，template 可用 blue
+- 不要使用 msg_type=text；不要使用 JSON 1.0 的 div.text + lark_md；不要使用 card.elements + tag=markdown 的混合结构
+- 正文 Markdown 不要使用 #、##、###、####；邮箱名和邮件条目标题使用 text_tag + **粗体**
+- 不要配置 custom text_size 让 mobile 显示为 heading；统一使用 text_size: "normal"
+- 每个 webhook 请求体不能超过 20KB；如果完整汇总较长，拆成多张 interactive 卡片连续发送，每张仍使用 schema=2.0 + body.elements + tag=markdown
+
+推荐 payload 模板：
+{"msg_type":"interactive","card":{"schema":"2.0","config":{"update_multi":true,"wide_screen_mode":true,"summary":{"content":"邮件汇总(YYYY-MM-DD)"}},"header":{"title":{"tag":"plain_text","content":"邮件汇总(YYYY-MM-DD)"},"template":"blue","padding":"12px 12px 12px 12px"},"body":{"direction":"vertical","padding":"12px 12px 12px 12px","elements":[{"tag":"markdown","content":"<完整 Markdown 汇总内容>","text_align":"left","text_size":"normal","margin":"0px 0px 0px 0px"}]}}}
+
+失败处理要求：
+- 单个邮箱读取失败时，不要立即终止整个任务。对失败邮箱至少重试 2 次，重试间隔可使用 10 秒、30 秒等短间隔。
+- 如果某个邮箱多次重试仍失败，保留该邮箱分组，写明“读取失败”，并说明失败类型或服务端返回的非敏感错误；不要展示密码、token、验证码或完整敏感响应。
+- Webhook 发送汇总失败时，必须至少重试 3 次，重试间隔可递增。
+- 如果完整汇总超过 20KB，先拆分为多张 interactive 卡片再发送，不应直接失败。
+- 如果最终汇总卡片多次发送失败，必须再尝试向同一个 webhook 发送一张简短的 interactive 错误卡片，标题为 邮件汇总失败(YYYY-MM-DD)，正文包含失败阶段、HTTP 状态或非敏感错误摘要、已尝试次数、是否有邮箱读取失败。
+- 只有当汇总卡片和错误卡片都无法发送到飞书时，才在本线程回复失败原因和 HTTP 状态/响应摘要。
+- 如果发送成功，在本线程里简短说明已发送；如果随后标记已读也成功，说明已发送并已标记已读。

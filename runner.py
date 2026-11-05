@@ -147,6 +147,10 @@ def execute(options):
                     summary = event.get('summary') or 'FlowerCloud 流量检查结束'
                     if name == 'flowercloud_skipped':
                         status = 'skipped'
+
+                elif name == 'scheduled_task':
+                    summary = event.get('summary') or '定时任务结束'
+                    status = {'success':'success', 'skipped':'skipped'}.get(event.get('status'), 'failed')
                 elif name == 'notification_sent':
                     summary = f'日报已发送 · {event.get("prs", "—")} 个 PR'
                 elif name == 'worker_finished':
@@ -169,6 +173,19 @@ def execute(options):
             failures = [item for item in business_results.values() if item.get('code') not in (None, 0) or item.get('status') == 'error']
             status = 'failed' if failures else 'success'
             summary = f'已处理 {len(business_results)} 个 PR' + (f'，其中 {len(failures)} 个异常' if failures else '')
+
+    # 迁移任务的失败阶段同样显示业务摘要；不能被最后一条普通日志遮盖。
+    if options.task_id in ('mail-digest', 'signoz-report', 'plugin-model-sync', 'pr-weekly-report'):
+        for line in reversed(tail.splitlines()):
+            try:
+                event = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(event, dict) and event.get('event') == 'scheduled_task':
+                summary = event.get('summary') or summary
+                if code == 0 and event.get('status') == 'skipped':
+                    status = 'skipped'
+                break
     safe_record(lambda: store.update_run(run_id, status=status, finished_at=time.time(), heartbeat_at=time.time(),
                                         exit_code=code, summary=summary, log_tail=tail))
     return 128 - code if code < 0 else code

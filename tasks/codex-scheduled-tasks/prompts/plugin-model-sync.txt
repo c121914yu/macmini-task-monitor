@@ -1,0 +1,1 @@
+使用 skill 来进行一次模型检查并提交 pr。要求：都使用叫做 codex/plugin-model-sync 的分支进行工作，每次工作区同步一次 upstream main代码。提交到 pr 时候，如果上一个 pr 未合并，则推送到同一个 pr。

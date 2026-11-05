@@ -1,0 +1,74 @@
+{
+  "mail-digest": {
+    "name": "个人邮件每日总结",
+    "native_id": "automation",
+    "enabled": false,
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "cwd": "/Users/yjl/.local/share/codex-scheduled-tasks",
+    "codex_bin": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+    "project_id": null,
+    "thread_id": null,
+    "memory": "/Users/yjl/.codex/automations/automation/memory.md",
+    "skills": [],
+    "skill_names": {},
+    "label": "com.yjl.mail-digest",
+    "timeout_seconds": 5400
+  },
+  "signoz-report": {
+    "name": "FastGPT Signoz 错误报告",
+    "native_id": "fastgpt-signoz",
+    "enabled": false,
+    "model": "gpt-6.1-sol",
+    "effort": "xhigh",
+    "cwd": "/Volumes/code/dev/FastGPT",
+    "codex_bin": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+    "project_id": "41b4d408-05f0-40f9-9712-bd2dbf74ee65",
+    "thread_id": null,
+    "memory": "/Users/yjl/.codex/automations/fastgpt-signoz/memory.md",
+    "skills": [],
+    "skill_names": {},
+    "label": "com.yjl.signoz-report",
+    "timeout_seconds": 5400
+  },
+  "plugin-model-sync": {
+    "name": "Plugin 新增模型",
+    "native_id": "plugin",
+    "enabled": false,
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "cwd": "/Volumes/code/dev/fastgpt-plugin",
+    "codex_bin": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+    "project_id": "5b97332c-f8dd-4c0d-95e9-560ac049c3f4",
+    "thread_id": null,
+    "memory": "/Users/yjl/.codex/automations/plugin/memory.md",
+    "skills": [
+      "/Volumes/code/dev/fastgpt-plugin/.codex/skills/model-provider-updater/SKILL.md"
+    ],
+    "skill_names": {
+      "/Volumes/code/dev/fastgpt-plugin/.codex/skills/model-provider-updater/SKILL.md": "model-provider-updater"
+    },
+    "label": "com.yjl.plugin-model-sync",
+    "timeout_seconds": 7200
+  },
+  "pr-weekly-report": {
+    "name": "FastGPT 每周 PR 汇总",
+    "native_id": "fastgpt-pr",
+    "enabled": false,
+    "model": "gpt-6.1-sol",
+    "effort": "xhigh",
+    "cwd": "/Volumes/code/dev/FastGPT",
+    "codex_bin": "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+    "project_id": null,
+    "thread_id": "01a1665d-1849-74b1-897f-8ce6443f83b3",
+    "memory": "/Users/yjl/.codex/automations/fastgpt-pr/memory.md",
+    "skills": [
+      "/Users/yjl/.codex/skills/fastgpt-pr-weekly-report/SKILL.md"
+    ],
+    "skill_names": {
+      "/Users/yjl/.codex/skills/fastgpt-pr-weekly-report/SKILL.md": "fastgpt-pr-weekly-report"
+    },
+    "label": "com.yjl.pr-weekly-report",
+    "timeout_seconds": 5400
+  }
+}

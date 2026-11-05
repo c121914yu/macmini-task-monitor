@@ -66,3 +66,8 @@ node --check web/app.js
 ```
 
 恢复或安装遇到正在运行的业务时，不要强制停止。安装器会等待；恢复操作需等任务结束后重试。
+
+
+## Codex 四项任务迁移
+
+个人邮件日报（07:00）、SigNoz 错误日报（07:00）、Plugin 模型更新（01:30）、每周 PR 汇总（周五 10:00）已使用系统 launchd 调度并接入本看板。运行目录 /Users/yjl/.local/share/codex-scheduled-tasks；原 Codex 定时器保持 PAUSED，原记忆、周报会话与文档凭据保留。邮件和 Plugin 使用 gpt-6.1-sol / medium，其他两项 xhigh，均关闭 Fast。所有通知使用统一限流重试；凭据和运行数据不入 Git。实现、验证及恢复说明见 tasks/codex-scheduled-tasks/README.md。
