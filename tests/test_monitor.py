@@ -41,6 +41,75 @@ class MonitorTests(unittest.TestCase):
     def latest(self, task_id='test'):
         return store.list_runs({'task_id': task_id})['items'][0]
 
+    def test_discovered_alias_preserves_run_evidence_and_is_idempotent(self):
+        alias = {'id':'com.yjl.example', 'name':'com.yjl.example', 'label':'com.yjl.example',
+                 'source':'launchd', 'description':'自动发现的 launchd 定时任务。'}
+        canonical = {'id':'example', 'name':'示例任务', 'label':'com.yjl.example', 'source':'launchd'}
+        store.save_task(alias)
+        store.save_task(canonical)
+        store.insert_run({'id':'alias-history','task_id':alias['id'],'external_key':'alias-history',
+                          'kind':'history','status':'unknown','created_at':1000,'started_at':None,
+                          'finished_at':None,'summary':'原历史凭据','details':{'原始':'保留'}})
+        store.insert_run({'id':'canonical-run','task_id':'example','external_key':'canonical-run',
+                          'kind':'execution','status':'success','created_at':2000,'started_at':2000,
+                          'finished_at':2010,'exit_code':0,'log_tail':'original log'})
+        before = store.read_run('alias-history')
+        self.assertEqual(store.reconcile_discovered_tasks([canonical]), 1)
+        self.assertEqual(store.reconcile_discovered_tasks([canonical]), 0)
+        after = store.read_run('alias-history')
+        self.assertEqual({**before, 'task_id':'example'}, after)
+        self.assertEqual(store.read_run('canonical-run')['log_tail'], 'original log')
+        self.assertEqual(store.list_runs({'task_id':'example'})['total'], 2)
+        with store.connect() as db:
+            ids = {row['id'] for row in db.execute('SELECT id FROM tasks')}
+        self.assertEqual(ids, {'example'})
+        evidence = store.get_meta('task-alias:'+alias['id'])
+        self.assertEqual(evidence['previous_snapshot'], alias)
+        self.assertEqual(evidence['moved_runs'], 1)
+        self.assertTrue((config.DATA/'backups/monitor-before-task-aliases-v1.sqlite3').exists())
+
+    def test_discovered_alias_requires_unambiguous_registered_identity(self):
+        original = {'id':'com.yjl.example','name':'com.yjl.example','label':'com.yjl.example',
+                    'source':'launchd','description':'自动发现的 launchd 定时任务。'}
+        canonical = {'id':'example','label':'com.yjl.example','source':'launchd'}
+        examples = [
+            ({**original,'source':'other'}, [canonical]),
+            ({**original,'label':'com.yjl.different'}, [canonical]),
+            ({**original,'name':'人工定义的任务'}, [canonical]),
+            (original, [canonical,{**canonical,'id':'another'}]),
+        ]
+        for snapshot, definitions in examples:
+            with self.subTest(snapshot=snapshot, definitions=definitions):
+                store.save_task(snapshot)
+                self.assertEqual(store.reconcile_discovered_tasks(definitions), 0)
+                with store.connect() as db:
+                    actual = json.loads(db.execute('SELECT snapshot FROM tasks WHERE id=?',
+                                                    (snapshot['id'],)).fetchone()['snapshot'])
+                self.assertEqual(actual, snapshot)
+        with store.connect() as db:
+            db.execute('UPDATE tasks SET snapshot=? WHERE id=?', ('[]', original['id']))
+        self.assertEqual(store.reconcile_discovered_tasks([canonical]), 0)
+
+    def test_alias_reconciliation_failure_rolls_back_history_moves(self):
+        alias = {'id':'com.yjl.example','name':'com.yjl.example','label':'com.yjl.example',
+                 'source':'launchd','description':'自动发现的 launchd 定时任务。'}
+        canonical = {'id':'example','label':'com.yjl.example','source':'launchd'}
+        store.save_task(alias)
+        store.insert_run({'id':'alias-run','task_id':alias['id'],'external_key':'alias-run',
+                          'kind':'execution','status':'running','created_at':1000,'started_at':1000,
+                          'pid':123,'heartbeat_at':1001})
+        with store.connect() as db:
+            db.execute("CREATE TRIGGER block_alias_delete BEFORE DELETE ON tasks BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        import sqlite3
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                store.reconcile_discovered_tasks([canonical])
+            self.assertEqual(store.read_run('alias-run')['task_id'], alias['id'])
+            self.assertIsNone(store.get_meta('task-alias:'+alias['id']))
+        finally:
+            with store.connect() as db:
+                db.execute('DROP TRIGGER block_alias_delete')
+
     def test_exit_code_and_unicode_and_redaction(self):
         result = self.runner('import sys;print("运行完成 中文");print("Authorization: Bearer fake-test-value-123456789",file=sys.stderr);sys.exit(7)')
         self.assertEqual(result.returncode, 7)

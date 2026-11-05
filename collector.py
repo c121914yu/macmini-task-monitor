@@ -317,7 +317,12 @@ def collect():
             sources[key] = {'source_error': redact(str(error))}
             errors.append(f'{key}: {redact(error)}')
 
-    for task in definitions():
+    task_definitions = definitions()
+    try:
+        store.reconcile_discovered_tasks(task_definitions)
+    except Exception as error:
+        errors.append('任务别名合并失败：' + redact(error))
+    for task in task_definitions:
         definition = {}
         if task.get('label'):
             try:

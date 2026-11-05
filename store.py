@@ -89,6 +89,56 @@ def save_task(task):
                    (task['id'], json.dumps(task, ensure_ascii=False), time.time()))
 
 
+def reconcile_discovered_tasks(definitions):
+    """按相同 launchd label 合并自动发现的旧别名；执行凭据只改归属，不删除。
+
+    只处理 id/name 均等于 label 的自动发现条目。正式登记冲突、来源不符或
+    快照身份不一致时保留现场，避免把不同任务或用户自行命名的任务误合并。
+    """
+    labels = {}
+    for task in definitions:
+        if task.get('source') == 'launchd' and task.get('label'):
+            labels.setdefault(task['label'], []).append(task)
+    canonical = {label: items[0]['id'] for label, items in labels.items()
+                 if len(items) == 1 and items[0]['id'] != label}
+    if not canonical:
+        return 0
+    with connect() as db:
+        rows = db.execute('SELECT id,snapshot FROM tasks').fetchall()
+    candidates = []
+    for row in rows:
+        try:
+            snapshot = json.loads(row['snapshot'])
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(snapshot, dict):
+            continue
+        alias = row['id']
+        if (alias in canonical and snapshot.get('id') == alias
+                and snapshot.get('name') == alias and snapshot.get('label') == alias
+                and snapshot.get('source') == 'launchd'
+                and snapshot.get('description') == '自动发现的 launchd 定时任务。'):
+            candidates.append((alias, canonical[alias], row['snapshot']))
+    if not candidates:
+        return 0
+    backup_database('monitor-before-task-aliases-v1.sqlite3')
+    merged = 0
+    with connect() as db:
+        for alias, target, original in candidates:
+            # 备份期间可能有新采集；仅合并仍与已验证快照一致的旧条目。
+            row = db.execute('SELECT snapshot FROM tasks WHERE id=?', (alias,)).fetchone()
+            if not row or row['snapshot'] != original:
+                continue
+            moved = db.execute('UPDATE runs SET task_id=? WHERE task_id=?', (target, alias)).rowcount
+            evidence = {'canonical_id': target, 'previous_snapshot': json.loads(original),
+                        'moved_runs': moved, 'merged_at': time.time()}
+            db.execute('INSERT INTO metadata VALUES (?,?) ON CONFLICT(key) DO NOTHING',
+                       ('task-alias:' + alias, json.dumps(evidence, ensure_ascii=False)))
+            db.execute('DELETE FROM tasks WHERE id=?', (alias,))
+            merged += 1
+    return merged
+
+
 def insert_run(run):
     """真实执行与历史凭据共用账本；导入冲突时保留最初记录，不重复计数。"""
     fields = ['id', 'task_id', 'external_key', 'kind', 'status', 'created_at', 'started_at', 'finished_at', 'heartbeat_at', 'pid', 'process_start', 'exit_code', 'summary', 'details', 'log_tail']
