@@ -1,0 +1,8 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -43,3 +43,5 @@
+ - 二次及后续普通 PR review 在每轮模型启动前由宿主重新分页采集普通评论、Review 正文、行内讨论及回复，补充 resolved/outdated 状态，保存独立的 review-discussion-时间戳.json；重试也重新采集，失败沿用后续扫描重试上限，不得把缺失评论当作无问题或继续调用模型。宿主只传递本轮评论快照、历史报告路径和快照/发布约束；评论阅读、修复核对、误报判断和完整报告规则统一维护在 FastGPT 的 .agents/skills/system/pr-review/SKILL.md，人工审查无宿主快照时由 skill 自行分页读取远端。新 head 仍终止并重新排队，临时队列评论不作为审查问题。
+ 
+ - 所有自动任务的 webhook 统一调用 /Users/yjl/.local/share/webhook-delivery：明确收到限流后固定等待 60 秒，最多重试 3 次（首发加重试共 4 次）。只重发原消息，不重新调用模型或采集数据；同一消息耗尽后不能由下次扫描自动清零预算，网络结果未知时仍保留原有去重与核查规则。Python 用 webhook_delivery.send，Node 用 webhook_delivery.mjs 的 postWebhook。
++
++- 人工冲突处理任务可以使用 runs/PR号-conflict-resolution-key前12位 目录。回收前须交叉核对明确 purpose、完整 key、PR 号、固定 head、job.folder/worktree 与生命周期租约及受管路径；不能仅放宽目录名正则。原任务锁、进程树/cwd、Git 登记、主仓和 Pro 恢复对象验证保持，完成后保留全部证据和提交引用。

@@ -1,0 +1,65 @@
+--- a/workspace_gc.py
++++ b/workspace_gc.py
+@@ -23,11 +23,39 @@
+     life.save(Path(root) / 'storage-last-event.json', data)
+ 
+ 
+-def folder_valid(root, folder):
+-    folder = Path(folder)
+-    return (not folder.is_symlink() and folder.parent in
+-            {Path(root)/'runs', Path(root)/'dependency-runs'}
+-            and re.fullmatch(r'\d+-[0-9a-f]{12,64}', folder.name))
++def folder_valid(root, folder, record=None):
++    """普通任务保持严格命名；人工冲突任务还须交叉验证任务元数据和受管副本。"""
++    root, folder = Path(root), Path(folder)
++    if folder.is_symlink() or folder.parent not in {root/'runs', root/'dependency-runs'}:
++        return False
++    if re.fullmatch(r'\d+-[0-9a-f]{12,64}', folder.name):
++        return True
++    # 人工处理也是已登记的工作副本，但不能仅放宽正则就授予删除权限。
++    if folder.parent != root/'runs' or not re.fullmatch(r'\d+-conflict-resolution-[0-9a-f]{12}', folder.name):
++        return False
++    evidence = folder/'job.json'
++    if evidence.is_symlink():
++        return False
++    try:
++        job = life.read(evidence)
++        key, number = job.get('key', ''), job.get('number')
++        if (type(number) is not int or number <= 0 or not re.fullmatch(r'[0-9a-f]{64}', key)
++                or job.get('purpose') != 'manual conflict resolution requested by user'
++                or folder.name != f'{number}-conflict-resolution-{key[:12]}'
++                or job.get('folder') != str(folder)):
++            return False
++        worktree = life.workspace_path(root, job)
++        if job.get('worktree') != str(worktree) or not life.owned(root, worktree):
++            return False
++        if record is not None:
++            return (record.get('managed_by') == 'fastgpt-pr-review'
++                    and record.get('channel') == 'runs'
++                    and record.get('pr') == number and record.get('key') == key
++                    and record.get('path') == str(worktree)
++                    and record.get('head') == job.get('head_sha'))
++        return True
++    except (ValueError, TypeError, OSError):
++        return False
+ 
+ 
+ def registered(repo, path):
+@@ -97,7 +125,7 @@
+ def collect_one(root, repo, record, *, dry_run=False, processes=None, paths=None):
+     """逐任务持 job.lock，复核实际进程、输入与恢复点；不因心跳过期删除。"""
+     path, folder = Path(record['path']), Path(record['job_folder'])
+-    if not life.owned(root, path) or not folder_valid(root, folder):
++    if not life.owned(root, path) or not folder_valid(root, folder, record):
+         raise RuntimeError('Workspace provenance no longer valid')
+     if not folder.is_dir():
+         raise RuntimeError('Task evidence directory missing')
+@@ -108,6 +136,8 @@
+             life.update(root, path, state='active', protection='job_lock')
+             return 'active'
+         with life.cleanup_owner(folder):
++            if not folder_valid(root, folder, record):
++                raise RuntimeError('Workspace task evidence changed before cleanup')
+             if life.active_processes(record, processes):
+                 life.update(root, path, state='active', protection='live_process')
+                 return 'active'
