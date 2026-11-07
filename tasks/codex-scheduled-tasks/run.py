@@ -155,6 +155,36 @@ def validate_result(task, folder):
     return result
 
 
+def resolve_project(config, projects):
+    """Use the existing project owning cwd; never trust a migrated native timer ID."""
+    if not config.get('project_id'):
+        return None
+    cwd = Path(config['cwd']).resolve()
+    matches = [p for p in projects if any(Path(r['path']).resolve() == cwd for r in p.get('roots', []))]
+    # Keep a valid explicit identity even when multiple UI projects share a checkout.
+    exact = [p for p in matches if p['id'] == config['project_id']]
+    if len(exact) == 1:
+        return exact[0]['id']
+    if len(matches) != 1:
+        raise RuntimeError('Cannot uniquely resolve the existing Codex project for task cwd')
+    return matches[0]['id']
+
+
+async def project_id(server, config):
+    """Resolve before recording thread-creation intent; failure cannot create a chat."""
+    if not config.get('project_id'):
+        return None
+    projects = []
+    cursor = None
+    while True:
+        page = await server.send('project/list', {'limit':100, **({'cursor':cursor} if cursor else {})})
+        projects.extend(page['data'])
+        cursor = page.get('nextCursor')
+        if not cursor:
+            break
+    return resolve_project(config, projects)
+
+
 async def execute_model(task, config, folder, key, state, path):
     env = dict(os.environ)
     env.update({'SCHEDULED_TASK_ROOT': str(ROOT), 'SCHEDULED_TASK_RUN': str(folder)})
@@ -199,10 +229,12 @@ async def execute_model(task, config, folder, key, state, path):
                 else:
                     raise
         else:
+            resolved_project = await project_id(server, config)
+            state['resolved_project_id'] = resolved_project
             state['phase'] = 'creating_thread'
             save(path,state)
             response = await server.send('thread/start', {
-                **params,'projectId':config.get('project_id'),'threadSource':'user'})
+                **params,'projectId':resolved_project,'threadSource':'user'})
             thread = response['thread']['id']
         state.update({'thread_id':thread,'phase':'thread_ready'})
         save(path,state)
@@ -281,6 +313,8 @@ def run(task):
         if state.get('phase') in ('creating_thread','starting_turn','model_running'):
             emit(task,'failed','上次模型执行结果待核对，保留会话与现场')
             return 1
+        state.pop('error_type', None)
+        state.pop('rpc_error', None)
         state.update({'task':task,'period':key,'status':'running','phase':'collecting',
                       'started_at':state.get('started_at',time.time())})
         save(path,state)
@@ -303,6 +337,10 @@ def run(task):
             emit(task,'success',str(result['summary'])[:160],period=key,thread_id=state.get('thread_id'))
             return 0
         except BaseException as error:
+            if isinstance(error, RPCError):
+                state['rpc_error'] = error.error
+                if state.get('phase') == 'creating_thread' and str(error).startswith('project not found:'):
+                    state['phase'] = 'project_rejected'
             state.update({'status':'failed','finished_at':time.time(),'error_type':type(error).__name__})
             save(path,state)
             if isinstance(error,(KeyboardInterrupt,SystemExit)):
@@ -324,6 +362,7 @@ async def probe(config):
         available = {x['id'] for x in result['data']} | {x.get('model') for x in result['data']}
         for task in TASK_IDS:
             item = check_config(task)
+            await project_id(server,item)
             if item['model'] not in available:
                 raise RuntimeError('Configured model missing: '+item['model'])
         weekly = configuration('pr-weekly-report')

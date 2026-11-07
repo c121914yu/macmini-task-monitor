@@ -36,6 +36,19 @@ class MigrationTests(unittest.TestCase):
             p.stop()
         self.temp.cleanup()
 
+    def test_migrated_project_id_resolves_by_existing_checkout(self):
+        config={'project_id':'old','cwd':'/tmp/plugin'}
+        projects=[{'id':'current','roots':[{'path':'/tmp/plugin'}]},
+                  {'id':'unrelated','roots':[{'path':'/tmp/other'}]}]
+        self.assertEqual(run.resolve_project(config,projects),'current')
+        self.assertIsNone(run.resolve_project({'project_id':None,'cwd':'/tmp'},projects))
+        with self.assertRaises(RuntimeError):
+            run.resolve_project(config,[])
+        with self.assertRaises(RuntimeError):
+            run.resolve_project(config,projects+[{'id':'duplicate','roots':[{'path':'/tmp/plugin'}]}])
+        self.assertEqual(run.resolve_project({**config,'project_id':'current'},
+            projects+[{'id':'duplicate','roots':[{'path':'/tmp/plugin'}]}]),'current')
+
     def test_shanghai_period_and_original_friday_gap(self):
         now=dt.datetime(2026,11,6,10,tzinfo=common.ZONE)
         self.assertEqual(common.period('mail-digest',now),'2026-11-05')
@@ -198,6 +211,10 @@ class MigrationTests(unittest.TestCase):
             result=inputs.collect_prs(self.folder,start,end)
         self.assertEqual(len(requests),5)
         self.assertTrue(all('--paginate' not in args for args in requests))
+        for args in requests:
+            fields = [args[i+1] for i,value in enumerate(args) if value == '-f']
+            self.assertTrue(all('=' in field for field in fields))
+            self.assertEqual(len([args[i+1] for i,value in enumerate(args) if value == '-f' and args[i+1].startswith('q=')]),1)
         self.assertEqual(sum(result['counts'].values()),0)
 
     def test_github_incomplete_results_are_not_zero(self):

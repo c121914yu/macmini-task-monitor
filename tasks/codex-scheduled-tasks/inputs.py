@@ -240,7 +240,7 @@ def collect_prs(folder, start, end):
                  f'{right.astimezone(dt.timezone.utc).isoformat(timespec="seconds")}')
         def page(number):
             result = subprocess.run(['gh','api','--method','GET','search/issues',
-                '-f','q',query,'-f','per_page=100','-f','page='+str(number)],
+                '-f','q='+query,'-f','per_page=100','-f','page='+str(number)],
                 text=True,capture_output=True,check=True,timeout=120)
             data = json.loads(result.stdout)
             if data.get('incomplete_results'):
