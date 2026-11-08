@@ -1,0 +1,12 @@
+[
+  {
+    "file": "/Users/yjl/.local/share/fastgpt-release-docs/release_docs.py",
+    "before_sha256": "96055645a8186aabd61d762176acc114e9abddf1cfa94d2b502367d23aed915b",
+    "after_sha256": "eb6e74e23ff1c2b0bd676400bef78114b80c43b0201bb398fadb68691ac6a815"
+  },
+  {
+    "file": "/Users/yjl/.local/share/fastgpt-release-docs/AGENTS.md",
+    "before_sha256": "bf173116d83929da727064555004d16ab58536f86e90e1d7665aa4b8836bbd6a",
+    "after_sha256": "b773bb8dced6228a030f8f3be1553490a3e294d492d7487720bbae578a9cb8c8"
+  }
+]

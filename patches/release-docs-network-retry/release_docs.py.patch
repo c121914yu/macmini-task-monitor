@@ -1,0 +1,69 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -48 +48 @@
+-    """使用参数数组；不输出 GitHub token、webhook 或原始凭据。"""
++    """执行参数数组；只有显式标为可重放的远端读取才重试瞬时传输错误。"""
+@@ -50,3 +50,45 @@
+-    result = subprocess.run(args, cwd=options.get('cwd'), capture_output=True, text=True,
+-                            timeout=options.get('timeout', 180),
+-                            env={**os.environ, 'HUSKY': '0', 'CI': 'true', 'GIT_TERMINAL_PROMPT': '0'})
++    delays = (10, 30, 60) if options.get('retry_read') else ()
++
++    def retry_reason(message):
++        """识别传输与服务端瞬态错误；权限、资源不存在等业务错误直接失败。"""
++        text = message.lower()
++        if 'api rate limit exceeded' in text or 'secondary rate limit' in text:
++            return 'rate_limit'
++        status = re.search(r'(?:\bhttp(?:/[\d.]+)?[\s:]+|requested url returned error:\s*)(\d{3})\b', text)
++        if status:
++            return 'rate_limit' if status[1] == '429' else (
++                'http_5xx' if status[1] in ('500', '502', '503', '504') else None)
++        if re.search(r'\beof\b', text):
++            return 'network_eof'
++        if any(part in text for part in ('timed out', 'timeout', 'context deadline exceeded',
++                                         'operation too slow')):
++            return 'network_timeout'
++        if any(part in text for part in (
++                'connection reset', 'connection aborted', 'connection refused', 'broken pipe',
++                'could not resolve host', 'temporary failure in name resolution',
++                'ssl_error_syscall', 'empty reply from server', 'remote end hung up unexpectedly',
++                'unexpected disconnect while reading', 'http/2 stream', 'server sent goaway')):
++            return 'network_connection'
++        return None
++
++    for attempt in range(len(delays) + 1):
++        try:
++            result = subprocess.run(
++                args, cwd=options.get('cwd'), capture_output=True, text=True,
++                timeout=options.get('timeout', 180),
++                env={**os.environ, 'HUSKY': '0', 'CI': 'true', 'GIT_TERMINAL_PROMPT': '0'})
++        except subprocess.TimeoutExpired:
++            if attempt >= len(delays):
++                raise
++            reason = 'network_timeout'
++        else:
++            if result.returncode == 0:
++                return result
++            reason = retry_reason(result.stderr or result.stdout)
++            if not reason or attempt >= len(delays):
++                break
++        # 只记分类和次数，不记录 URL、完整命令、响应体或凭据。
++        emit('docs_network_retry', operation=options.get('operation', 'remote_read'),
++             reason=reason, retry=attempt + 1, max_retries=len(delays),
++             delay_seconds=delays[attempt])
++        time.sleep(delays[attempt])
+@@ -59 +101,7 @@
+-    return json.loads(command(['gh', *args]).stdout)
++    """只重试无写入参数的 REST 默认 GET；POST/PATCH 由既有发布恢复流程核对结果。"""
++    write_flags = ('--method', '-X', '--field', '-F', '--raw-field', '-f', '--input')
++    read_only = bool(args and args[0] == 'api') and not any(
++        part in write_flags or part.startswith(('--method=', '--field=', '--raw-field=', '--input=',
++                                                '-X', '-F', '-f'))
++        for part in args[1:])
++    return json.loads(command(['gh', *args], {'retry_read': read_only, 'operation': 'github_get'}).stdout)
+@@ -63 +111,4 @@
+-    return command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(repo), *args]).stdout.strip()
++    """仅 fetch/ls-remote 可重放；push、合并与提交保持原有单次执行语义。"""
++    return command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(repo), *args],
++                   {'retry_read': bool(args and args[0] in ('fetch', 'ls-remote')),
++                    'operation': 'git_read'}).stdout.strip()
