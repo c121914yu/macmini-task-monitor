@@ -1,5 +1,12 @@
 __pycache__/
 *.log
+transport.json
+known_hosts
+remote-summary.json
+remote-summary.tmp
 *.lock
+*.json.tmp
 logs/
 verification/
+*-receipt.json
+migration-*.json

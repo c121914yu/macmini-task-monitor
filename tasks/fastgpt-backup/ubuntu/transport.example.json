@@ -1,0 +1,18 @@
+{
+  "ssh": [
+    "/usr/bin/ssh",
+    "-T",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=20",
+    "-o",
+    "StrictHostKeyChecking=yes",
+    "-o",
+    "UserKnownHostsFile=/home/archer/.local/share/fastgpt-backup/known_hosts",
+    "-i",
+    "/home/archer/.ssh/id_ed25519_fastgpt_backup",
+    "yjl@100.96.142.32"
+  ],
+  "port": 18090
+}

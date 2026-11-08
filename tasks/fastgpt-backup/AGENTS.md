@@ -1,9 +1,11 @@
 # FastGPT 数据备份维护
 
-- 仅在 Mac mini 运行，每天北京时间 01:00；运行目录为 /Users/yjl/.local/share/fastgpt-backup，备份位于 /Volumes/code/backups/fastgpt。
-- 当前生产开发存储容器为 mongo、pg、fastgpt-rustfs；2026-11-02 对象存储切换到 RustFS，旧 fastgpt-minio 已删除。不得继续硬编码旧容器或仅跳过对象存储宣称完整备份。
-- 使用本机已有 MinIO 镜像中的 mc 作为临时客户端，通过 RustFS 容器网络读取。凭据从 RustFS 容器环境读取，只通过子进程环境传递，不打印、写入源代码或命令行。
-- 对象、桶配置、IAM、服务配置、Content-Type/自定义元数据及标签均须保存；版本化桶或复制前后对象变化时失败，不静默降低备份范围。保留 ETag/大小、压缩流完整性、SHA256 及原子发布。
-- 只有全部导出和校验完成才发布 complete 清单并清理超过 7 个自然日的自有备份；失败不删旧备份。不能伪造失败日期的历史快照，修复后只补跑当前真实时间的备份。
-- 独立客户端使用任务专属 UUID 名称和 owner 标签；持任务锁后才回收孤立客户端，不停止数据库、RustFS 或其他容器。
-- 排查先看自动化看板，再看 logs/YYYY-MM-DD.log；修复需局部模拟测试和一轮真实备份验证，保留历史失败记录与修复凭据，不修改现有业务数据。
+- Mac mini 保留 com.yjl.fastgpt-daily-backup，每天北京时间 01:00；入口 /Users/yjl/.local/share/fastgpt-backup/backup.py 通过 SSH 调用 Ubuntu Dev，不在 Mac mini 创建备份产物。
+- Ubuntu Dev 运行目录 /home/archer/.local/share/fastgpt-backup，产物 /home/archer/backups/fastgpt。保留最近 7 个自然日；仅成功导出并校验后清理过期、自有且 complete 的日期目录，失败不删旧备份。
+- 数据源仍为 Mac mini 的 mongo、pg、fastgpt-rustfs。数据库通过受限 SSH 流式导出，Ubuntu 临时 mc 容器通过专用 SSH 转发读取 RustFS。不得停止数据库、RustFS 或其他业务容器。
+- 凭据只从 RustFS 容器环境读取并经子进程环境传递；禁止输出、写入源码或命令行。SSH 私钥、transport.json、known_hosts、清单缓存、日志及产物不入 Git。
+- source_gateway.py 是专用密钥的 forced command，仅允许既定备份读取与 127.0.0.1:9000 转发；禁止放宽为通用远程 shell 或任意 Docker 命令。
+- 对象、桶配置、IAM、服务配置、Content-Type/自定义元数据及标签均须保存；版本化桶或复制前后对象变化时失败，不降低备份范围。保留 ETag/大小、压缩流完整性、SHA256、原子发布和任务锁。
+- 不伪造历史备份，不覆盖已完成的同日快照。修改后的真实验证使用 Ubuntu 上单独的 FASTGPT_BACKUP_ROOT；验证通过后仅删除该次自有验证目录。
+- Mac mini 仅保存脚本、日志和 remote-summary.json 元数据；看板读取缓存，不在每轮采集时 SSH。迁移目录须双端校验文件与清单后才删除来源。
+- 排查先看自动化看板，再看 Ubuntu logs/YYYY-MM-DD.log 与 transport.stderr.log、Mac mini launchd.log。修复需局部模拟测试和一次真实备份验证，保留历史错误和修复凭据。

@@ -80,6 +80,28 @@ def needs_receipt(task_id, event_time):
 
 
 def backup_data():
+    summary_path = BACKUP_ROOT / 'remote-summary.json'
+    if summary_path.exists():
+        summary = read_json(summary_path)
+        if summary.get('storage_root') != '/home/archer/backups/fastgpt':
+            raise RuntimeError('远端备份目录凭据异常')
+        records = []
+        for item in summary.get('backups', []):
+            start, end = timestamp(item.get('started_at')), timestamp(item.get('completed_at'))
+            record = {**item, 'completed_at': end}
+            records.append(record)
+            if end and needs_receipt('fastgpt-backup', end):
+                # 沿用原日期清单的稳定键，迁移存储位置不重复统计历史备份。
+                key = 'backup:/Volumes/code/backups/fastgpt/' + item['date'] + '/manifest.json'
+                import_record({'task_id':'fastgpt-backup','external_key':key,'status':'success',
+                    'created_at':start or end,'started_at':start,'finished_at':end,'exit_code':None,
+                    'summary':'MongoDB、PostgreSQL、RustFS 备份已保存至 Ubuntu Dev，校验通过',
+                    'details':{'备份日期':item['date'],'文件数量':item['file_count'],'总字节数':item['bytes'],
+                               '备份目录':item['path'],'保留天数':7,'存储主机':summary['storage_host'],
+                               '时间精度':'原始清单的开始与结束时间'}})
+        return {'backups':records[-7:],'latest_backup':records[-1] if records else None,
+                'storage_host':summary['storage_host'],'storage_root':summary['storage_root'],
+                'checked_at':summary.get('checked_at')}
     records = []
     backup_root = Path('/Volumes/code/backups/fastgpt')
     if not backup_root.is_dir():

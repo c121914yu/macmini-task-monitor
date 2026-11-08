@@ -159,7 +159,7 @@ def execute(options):
         if '今日备份目录已存在' in tail or '已有备份任务运行' in tail:
             status, summary = 'skipped', '备份已存在或已有任务运行，本次跳过'
         elif '备份成功：' in tail:
-            summary = 'MongoDB、PostgreSQL、MinIO 备份完成，校验通过'
+            summary = 'MongoDB、PostgreSQL、RustFS 备份完成，校验通过'
         if options.task_id == 'pr-scan':
             result = scan_result(latest_scan)
             if result is not None:

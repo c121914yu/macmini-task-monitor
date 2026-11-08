@@ -142,6 +142,27 @@ class MonitorTests(unittest.TestCase):
                           'created_at':cutoff-10,'status':'running'})
         self.assertIsNotNone(store.read_run('active'))
 
+    def test_remote_backup_summary_reuses_history_identity_without_local_payloads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            data={'storage_host':'archer-unbuntu26-dev','storage_root':'/home/archer/backups/fastgpt',
+                  'checked_at':'2026-11-08T22:00:00+08:00','backups':[{
+                    'date':'2026-11-08','bytes':12345,'file_count':6,
+                    'started_at':'2026-11-08T01:00:00+08:00','completed_at':'2026-11-08T01:02:00+08:00',
+                    'path':'archer-unbuntu26-dev:/home/archer/backups/fastgpt/2026-11-08'}]}
+            (root/'remote-summary.json').write_text(json.dumps(data))
+            with patch.object(collector,'BACKUP_ROOT',root):
+                result=collector.backup_data()
+                collector.backup_data()
+            self.assertEqual(result['storage_host'],'archer-unbuntu26-dev')
+            self.assertEqual(result['latest_backup']['file_count'],6)
+            records=store.list_runs({'task_id':'fastgpt-backup'})
+            self.assertEqual(records['total'],1)
+            self.assertEqual(records['items'][0]['external_key'],
+                'backup:/Volumes/code/backups/fastgpt/2026-11-08/manifest.json')
+            self.assertEqual(records['items'][0]['details']['备份目录'],data['backups'][0]['path'])
+            self.assertEqual(list(root.iterdir()),[root/'remote-summary.json'])
+
     def test_exit_code_and_unicode_and_redaction(self):
         result = self.runner('import sys;print("运行完成 中文");print("Authorization: Bearer fake-test-value-123456789",file=sys.stderr);sys.exit(7)')
         self.assertEqual(result.returncode, 7)
