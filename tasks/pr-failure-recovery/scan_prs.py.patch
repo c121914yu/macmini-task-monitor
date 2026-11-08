@@ -1,0 +1,13 @@
+--- a/scan_prs.py
++++ b/scan_prs.py
+@@ -71,0 +72,5 @@
++                previous=state['entries'].get(number,{})
++                if previous.get('recovery_head')==snapshot['head'] and previous.get('recovery_review_url'):
++                    review=published_review(job,actor)
++                    if review:
++                        return number,{**obs,'route':'dependency_update','review_url':review['html_url']},None
+@@ -175 +180,3 @@
+-        if queued:
++        from pr_recovery import candidates
++        from queue_state import MAX_ATTEMPTS
++        if queued or candidates(state, MAX_ATTEMPTS, time.time()):

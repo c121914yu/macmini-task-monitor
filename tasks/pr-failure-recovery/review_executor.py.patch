@@ -1,0 +1,22 @@
+--- a/review_executor.py
++++ b/review_executor.py
+@@ -159 +159,5 @@
+-        for number in ready_numbers(state):
++        import pr_recovery
++        recoveries = pr_recovery.candidates(state, MAX_ATTEMPTS, time.time())
++        numbers = sorted(set(ready_numbers(state)) | set(recoveries),
++                         key=lambda n:(state['entries'][n].get('queued_at',0),int(n)))
++        for number in numbers:
+@@ -163 +167,2 @@
+-            if entry.get('attempts', 0) >= MAX_ATTEMPTS:
++            recovering = number in recoveries
++            if entry.get('attempts', 0) >= MAX_ATTEMPTS and not recovering:
+@@ -182 +187 @@
+-                            number, '--retry'], cwd=REPO_ROOT, env=env,
++                            number, '--recover' if recovering else '--retry'], cwd=REPO_ROOT, env=env,
+@@ -192,0 +198,2 @@
++            if recovering:
++                entry['recovery_head'] = entry['snapshot']['head']
+@@ -194 +201 @@
+-                          'attempts': entry.get('attempts', 0) + 1, 'worker_pid': os.getpid(),
++                          'attempts': entry.get('attempts', 0) + (0 if recovering else 1), 'worker_pid': os.getpid(),
