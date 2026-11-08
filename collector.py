@@ -360,9 +360,11 @@ def collect():
         elif not task['loaded']:
             task['state'] = 'disabled'
         elif task['state'] != 'running':
-            if last.get('status') in ('failed', 'interrupted', 'unknown'):
+            if last.get('status') == 'partial':
+                task['state'] = 'partial'
+            elif last.get('status') in ('failed', 'interrupted', 'unknown'):
                 task['state'] = 'attention'
-            elif task.get('last_exit_code') not in (None, 0):
+            elif task.get('last_exit_code') not in (None, 0) and not last.get('details',{}).get('outcome_reconciled'):
                 task['state'] = 'attention'
         if task['data'].get('source_error'):
             task['state'] = 'unknown'

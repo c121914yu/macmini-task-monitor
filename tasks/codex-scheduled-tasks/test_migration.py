@@ -49,6 +49,21 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(run.resolve_project({**config,'project_id':'current'},
             projects+[{'id':'duplicate','roots':[{'path':'/tmp/plugin'}]}]),'current')
 
+    def test_partial_outcomes_still_require_business_evidence(self):
+        common.save(self.folder/'result.json',{'status':'partial','summary':'with limits',
+                    'log_analysis_complete':True})
+        common.save(self.folder/'signoz.json',{'current':{k:{'complete':True}for k in inputs.FILTERS}})
+        with self.assertRaises(RuntimeError):
+            run.validate_result('signoz-report',self.folder)
+        common.save(self.folder/'notification.json',{'status':'sent'})
+        self.assertEqual(run.validate_result('signoz-report',self.folder)['status'],'partial')
+        with self.assertRaises(RuntimeError):
+            run.validate_result('plugin-model-sync',self.folder)
+        (self.folder/'report.md').write_text('Verified changes; catalog limitations recorded')
+        self.assertEqual(run.validate_result('plugin-model-sync',self.folder)['status'],'partial')
+        with self.assertRaises(RuntimeError):
+            run.validate_result('pr-weekly-report',self.folder)
+
     def test_shanghai_period_and_original_friday_gap(self):
         now=dt.datetime(2026,11,6,10,tzinfo=common.ZONE)
         self.assertEqual(common.period('mail-digest',now),'2026-11-05')

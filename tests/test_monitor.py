@@ -166,7 +166,7 @@ class MonitorTests(unittest.TestCase):
 
 
     def test_migrated_task_status_and_summary(self):
-        for state, code, expected in [('success',0,'success'), ('skipped',0,'skipped'), ('failed',1,'failed')]:
+        for state, code, expected in [('success',0,'success'), ('skipped',0,'skipped'), ('partial',0,'partial'), ('failed',1,'failed')]:
             result = self.runner('import json;print(json.dumps({"event":"scheduled_task","status":'+repr(state)+',"summary":"迁移任务实际结果"}));raise SystemExit('+str(code)+')', task_id='mail-digest')
             self.assertEqual(result.returncode, code)
             self.assertEqual(self.latest('mail-digest')['status'], expected)

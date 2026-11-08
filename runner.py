@@ -150,7 +150,7 @@ def execute(options):
 
                 elif name == 'scheduled_task':
                     summary = event.get('summary') or '定时任务结束'
-                    status = {'success':'success', 'skipped':'skipped'}.get(event.get('status'), 'failed')
+                    status = {'success':'success', 'skipped':'skipped', 'partial':'partial'}.get(event.get('status'), 'failed')
                 elif name == 'notification_sent':
                     summary = f'日报已发送 · {event.get("prs", "—")} 个 PR'
                 elif name == 'worker_finished':

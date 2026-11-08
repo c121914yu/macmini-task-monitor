@@ -34,7 +34,7 @@ def snapshot():
     work = [task for task in tasks if task['category'] == 'work']
     return {'tasks': tasks, 'collector': metadata, 'now': time.time(), 'timezone': 'Asia/Shanghai',
             'stats': {'tasks': len(work), 'running': sum(task['state'] == 'running' for task in work),
-                      'attention': sum(task['state'] in ('attention', 'overdue', 'disabled', 'unknown') for task in work),
+                      'attention': sum(task['state'] in ('attention', 'overdue', 'disabled', 'unknown', 'partial') for task in work),
                       'today': sum(counts.values()), 'counts': counts, 'total_records': total, 'execution_records': execution_count},
             'daily': daily, 'recent': store.list_runs({'limit': 8, 'status': 'non_skipped'})['items'], 'recording_since': store.get_meta('created_at')}
 
@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
                     if value < (1 if key == 'limit' else 0) or value > maximum:
                         raise ValueError('分页或日期范围无效')
                     filters[key] = value
-                if filters.get('status') and filters['status'] not in ('non_skipped', 'success', 'failed', 'running', 'skipped', 'interrupted', 'unknown'):
+                if filters.get('status') and filters['status'] not in ('non_skipped', 'success', 'failed', 'running', 'skipped', 'interrupted', 'unknown', 'partial'):
                     raise ValueError('执行状态无效')
                 if filters.get('kind') and filters['kind'] not in ('history', 'execution'):
                     raise ValueError('记录来源无效')

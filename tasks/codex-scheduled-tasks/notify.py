@@ -6,6 +6,7 @@ import hashlib
 import json
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from common import ROOT, configuration, read, run_folder, save
 
@@ -28,6 +29,43 @@ def validate(payloads):
         if len(json.dumps(payload, ensure_ascii=False).encode()) >= 19000:
             raise ValueError('Card must be smaller than 19 KB')
     return hashlib.sha256(json.dumps(payloads, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def validate_weekly_document(folder):
+    """Require each upstream PR and its actual author in the same XML list item.
+
+    gh exposes GitHub App actors as app/<slug>; REST uses <slug>[bot].
+    Both identify the App profile at /apps/<slug>, rather than a user profile.
+    Exact href matching prevents plain text, unrelated items or URL prefixes
+    from satisfying the author coverage requirement.
+    """
+    try:
+        document = ET.fromstring('<root>' + (folder/'document-readback.xml').read_text() + '</root>')
+    except ET.ParseError:
+        raise ValueError('Weekly document XML invalid') from None
+
+    parents = {child: parent for parent in document.iter() for child in parent}
+    item_links = {}
+    for link in document.iter('a'):
+        parent = parents.get(link)
+        while parent is not None and parent.tag != 'li':
+            parent = parents.get(parent)
+        if parent is not None:
+            item_links.setdefault(parent, set()).add(link.get('href'))
+
+    for items in read(folder/'prs.json').values():
+        for item in items:
+            login = (item.get('author') or {}).get('login')
+            if not isinstance(login, str) or not login:
+                raise ValueError('Weekly PR author information missing')
+            if login.startswith('app/'):
+                profile = 'https://github.com/apps/' + login.removeprefix('app/')
+            elif login.endswith('[bot]'):
+                profile = 'https://github.com/apps/' + login.removesuffix('[bot]')
+            else:
+                profile = 'https://github.com/' + login
+            if not any(item['url'] in links and profile in links for links in item_links.values()):
+                raise ValueError('Weekly document source coverage incomplete')
 
 
 def validate_business(task, key, folder, payloads):
@@ -65,11 +103,7 @@ def validate_business(task, key, folder, payloads):
         if actual != expected:
             raise ValueError('Signoz card totals differ from independent counts')
     elif task == 'pr-weekly-report':
-        text = (folder/'document-readback.xml').read_text()
-        for items in read(folder/'prs.json').values():
-            for item in items:
-                if item['url'] not in text or 'https://github.com/'+item['author']['login'] not in text:
-                    raise ValueError('Weekly document source coverage incomplete')
+        validate_weekly_document(folder)
     else:
         raise ValueError('Task does not authorize webhook notifications')
 

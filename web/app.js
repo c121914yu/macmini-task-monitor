@@ -22,7 +22,7 @@ const paths = {
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.clock}</svg>`;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-const labels = { ready: '等待调度', running: '运行中', success: '成功', failed: '失败', skipped: '已跳过', interrupted: '已中断', unknown: '待确认', attention: '需关注', overdue: '记录逾期', disabled: '未加载', stopped: '未运行' };
+const labels = { ready: '等待调度', running: '运行中', success: '成功', partial: '部分完成', failed: '失败', skipped: '已跳过', interrupted: '已中断', unknown: '待确认', attention: '需关注', overdue: '记录逾期', disabled: '未加载', stopped: '未运行' };
 const badge = (status) => `<span class="badge ${esc(status)}">${esc(labels[status] ?? status)}</span>`;
 const number = (value) => value === null || value === undefined ? '—' : new Intl.NumberFormat('en-US').format(value);
 const tokens = (value) => value === null || value === undefined ? '未知' : value >= 1000000 ? `${(value / 1000000).toFixed(2).replace(/\.?0+$/, '')}M` : value >= 1000 ? `${(value / 1000).toFixed(2).replace(/\.?0+$/, '')}K` : number(value);
@@ -109,7 +109,7 @@ function options(items, selected) {
 }
 
 function historyFilters(taskId) {
-  return `<div class="filters">${taskId ? '' : `<select data-filter="task_id" aria-label="按任务筛选">${options([['', '全部任务'], ...state.data.tasks.map((task) => [task.id, task.name])], state.filters.task_id)}</select>`}<select data-filter="status" aria-label="按执行结果筛选">${options([['non_skipped', '隐藏跳过'], ['', '全部结果'], ...['success', 'failed', 'running', 'skipped', 'interrupted', 'unknown'].map((key) => [key, labels[key]])], state.filters.status)}</select><select data-filter="kind" aria-label="按记录来源筛选">${options([['', '全部来源'], ['execution', '实时采集'], ['history', '历史凭据']], state.filters.kind)}</select><select data-filter="days" aria-label="按时间筛选">${options([['1', '今天'], ['7', '最近 7 天'], ['30', '最近 30 天'], ['0', '全部时间']], state.filters.days)}</select></div>`;
+  return `<div class="filters">${taskId ? '' : `<select data-filter="task_id" aria-label="按任务筛选">${options([['', '全部任务'], ...state.data.tasks.map((task) => [task.id, task.name])], state.filters.task_id)}</select>`}<select data-filter="status" aria-label="按执行结果筛选">${options([['non_skipped', '隐藏跳过'], ['', '全部结果'], ...['success', 'partial', 'failed', 'running', 'skipped', 'interrupted', 'unknown'].map((key) => [key, labels[key]])], state.filters.status)}</select><select data-filter="kind" aria-label="按记录来源筛选">${options([['', '全部来源'], ['execution', '实时采集'], ['history', '历史凭据']], state.filters.kind)}</select><select data-filter="days" aria-label="按时间筛选">${options([['1', '今天'], ['7', '最近 7 天'], ['30', '最近 30 天'], ['0', '全部时间']], state.filters.days)}</select></div>`;
 }
 
 function historyPanel(taskId = '') {

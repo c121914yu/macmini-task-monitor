@@ -1537,3 +1537,5 @@ footer { flex-wrap: wrap; row-gap: 8px;
 @media (max-width: 640px) {
   input, select { font-size:16px; }
 }
+
+.badge.partial, .activity-status.partial { background: var(--amber-soft); color: var(--amber); }

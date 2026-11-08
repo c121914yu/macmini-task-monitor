@@ -125,8 +125,20 @@ def developer_instructions(task, folder, key, config, state):
 def validate_result(task, folder):
     """Completion requires durable business evidence; partial/unknown remains visible."""
     result = read(folder/'result.json')
-    if not isinstance(result, dict) or result.get('status') != 'complete' or not result.get('summary'):
+    if not isinstance(result, dict) or result.get('status') not in ('complete','partial') or not result.get('summary'):
         raise RuntimeError('Task result incomplete')
+    if result['status']=='partial':
+        if task=='signoz-report':
+            if result.get('log_analysis_complete') is not True:
+                raise RuntimeError('Primary log analysis incomplete')
+            data=read(folder/'signoz.json',{}).get('current',{})
+            if set(data)!={'zod','llm','plugin'} or not all(x.get('complete') for x in data.values()):
+                raise RuntimeError('Primary log collection incomplete')
+        elif task=='plugin-model-sync':
+            if not (folder/'report.md').is_file():
+                raise RuntimeError('Provider audit report missing')
+        else:
+            raise RuntimeError('Partial outcome is not supported for this task')
     if task != 'plugin-model-sync':
         if read(folder/'notification.json', {}).get('status') != 'sent':
             raise RuntimeError('Notification not confirmed sent')
@@ -144,12 +156,8 @@ def validate_result(task, folder):
             if sorted(set(ids)) != marked.get(mailbox):
                 raise RuntimeError('Summary sent; IMAP marking incomplete')
     if task == 'pr-weekly-report':
-        text = (folder/'document-readback.xml').read_text()
-        data = read(folder/'prs.json')
-        for items in data.values():
-            for item in items:
-                if item['url'] not in text or 'https://github.com/'+item['author']['login'] not in text:
-                    raise RuntimeError('Weekly document coverage mismatch')
+        from notify import validate_weekly_document
+        validate_weekly_document(folder)
         if result.get('document_validated') is not True or not result.get('document_url','').startswith('https://'):
             raise RuntimeError('Weekly document not validated')
     return result
@@ -307,7 +315,7 @@ def run(task):
             return 0
         path = folder/'state.json'
         state = read(path,{})
-        if state.get('status') == 'complete':
+        if state.get('status') in ('complete','partial'):
             emit(task,'skipped','本周期已完成，不重复执行')
             return 0
         if state.get('phase') in ('creating_thread','starting_turn','model_running'):
@@ -330,11 +338,11 @@ def run(task):
                 result = validate_result(task,folder)
             else:
                 result = asyncio.run(execute_model(task,config,folder,key,state,path))
-            state.update({'status':'complete','phase':'complete','finished_at':time.time(),
+            state.update({'status':result['status'],'phase':'complete','finished_at':time.time(),
                           'summary':result['summary']})
             state.pop('error_type',None)
             save(path,state)
-            emit(task,'success',str(result['summary'])[:160],period=key,thread_id=state.get('thread_id'))
+            emit(task,'partial' if result['status']=='partial' else 'success',str(result['summary'])[:160],period=key,thread_id=state.get('thread_id'))
             return 0
         except BaseException as error:
             if isinstance(error, RPCError):
