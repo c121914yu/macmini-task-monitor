@@ -323,6 +323,7 @@ def run(task):
             return 1
         state.pop('error_type', None)
         state.pop('rpc_error', None)
+        state.pop('collection_error', None)
         state.update({'task':task,'period':key,'status':'running','phase':'collecting',
                       'started_at':state.get('started_at',time.time())})
         save(path,state)
@@ -349,12 +350,17 @@ def run(task):
                 state['rpc_error'] = error.error
                 if state.get('phase') == 'creating_thread' and str(error).startswith('project not found:'):
                     state['phase'] = 'project_rejected'
+            summary = '本轮失败，保留数据、会话及通知凭据'
+            if isinstance(error, inputs.SigNozRequestError):
+                # 仅公开已分类的网络诊断，不序列化可能包含认证信息或业务数据的异常文本。
+                state['collection_error'] = error.details
+                state['summary'] = summary = str(error)
             state.update({'status':'failed','finished_at':time.time(),'error_type':type(error).__name__})
             save(path,state)
             if isinstance(error,(KeyboardInterrupt,SystemExit)):
                 raise
-            emit(task,'failed','本轮失败，保留数据、会话及通知凭据',period=key,
-                 error_type=type(error).__name__)
+            emit(task,'failed',summary,period=key, error_type=type(error).__name__,
+                 **({'collection_error':error.details} if isinstance(error, inputs.SigNozRequestError) else {}))
             return 1
 
 

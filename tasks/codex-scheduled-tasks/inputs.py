@@ -6,6 +6,9 @@ import email
 import email.policy
 import fcntl
 import imaplib
+import http.client
+import socket
+import urllib.error
 import json
 import re
 import ssl
@@ -134,8 +137,35 @@ PROJECTIONS = {
 }
 
 
+class SigNozQueryWindowError(RuntimeError):
+    """查询结果截断或明确的服务端资源限制，缩短时间窗口后可以安全重查。"""
+
+
+class SigNozRequestError(RuntimeError):
+    """只携带允许公开的连接诊断；不保存 API key、SQL、响应体或原始异常文本。"""
+
+    def __init__(self, details):
+        self.details = details
+        labels = {
+            'certificate_verification': 'HTTPS 证书校验失败',
+            'tls_eof': 'TLS 连接提前关闭',
+            'tls_handshake': 'TLS 握手失败',
+            'timeout': '请求超时',
+            'dns': 'DNS 解析失败',
+            'connection': '网络连接失败',
+            'authentication': '认证或权限失败',
+            'rate_limit': '接口限流',
+            'server_error': '服务端暂时不可用',
+            'http_error': 'HTTP 请求被拒绝',
+        }
+        status = f'（HTTP {details["http_status"]}）' if details.get('http_status') else ''
+        retries = details['attempts'] - 1
+        budget = f'，已重试 {retries} 次' if retries else '，请求 1 次后停止'
+        super().__init__('SigNoz 数据采集失败：' + labels[details['category']] + status + budget)
+
+
 def signoz_query(sql, lo, hi):
-    """Fixed read-only projections avoid collecting full requests or user inputs."""
+    """固定只读 SELECT；瞬时连接错误原窗重试，证书/权限错误直接报告，资源限制交给拆窗。"""
     config = read(ROOT / 'private.json')['signoz-report']
     payload = {'schemaVersion': 'v1', 'start': lo, 'end': hi-1, 'requestType': 'scalar',
                'compositeQuery': {'queries': [{'type': 'clickhouse_sql',
@@ -143,11 +173,68 @@ def signoz_query(sql, lo, hi):
     request = urllib.request.Request(config['base_url'] + '/api/v5/query_range',
         data=json.dumps(payload).encode(),
         headers={'SIGNOZ-API-KEY': config['api_key'], 'Content-Type': 'application/json'}, method='POST')
-    with urllib.request.urlopen(request, timeout=55) as response:
-        data = json.load(response)
+
+    def classify(error, attempts):
+        """按异常类型分类；只允许已知安全的字段进入状态和看板日志。"""
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        details = {'category': 'connection', 'retryable': True, 'attempts': attempts,
+                   'error_type': type(error).__name__, 'reason_type': type(reason).__name__,
+                   'start_ms': lo, 'end_ms': hi}
+        if isinstance(error, urllib.error.HTTPError):
+            details['http_status'] = error.code
+            if error.code in (401, 403):
+                details.update(category='authentication', retryable=False)
+            elif error.code == 429:
+                details['category'] = 'rate_limit'
+            elif error.code in (500, 502, 503, 504):
+                details['category'] = 'server_error'
+            else:
+                details.update(category='http_error', retryable=False)
+        elif isinstance(reason, ssl.SSLCertVerificationError) or any(
+                marker in str(reason).lower() for marker in ('certificate_verify_failed', 'certificate verify failed')):
+            details.update(category='certificate_verification', retryable=False)
+            details['ssl_verify_code'] = getattr(reason, 'verify_code', None)
+            details['ssl_verify_message'] = getattr(reason, 'verify_message', None)
+        elif isinstance(reason, ssl.SSLEOFError) or (
+                isinstance(reason, str) and 'eof' in reason.lower()):
+            details['category'] = 'tls_eof'
+        elif isinstance(reason, (TimeoutError, socket.timeout)):
+            details['category'] = 'timeout'
+        elif isinstance(reason, socket.gaierror):
+            details.update(category='dns', retryable=reason.errno == socket.EAI_AGAIN)
+        elif isinstance(reason, ssl.SSLError):
+            details['category'] = 'tls_handshake'
+        return details
+
+    delays = (10, 30, 60)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(request, timeout=55) as response:
+                data = json.load(response)
+            break
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                try:
+                    if error.code in (400, 500):
+                        # 只识别明确的 ClickHouse 资源限制；响应体不落盘、不写入日志。
+                        try:
+                            body = error.read(16384).decode('utf-8', errors='replace').upper()
+                        except (OSError, http.client.HTTPException):
+                            body = ''
+                        if any(code in body for code in ('MEMORY_LIMIT_EXCEEDED', 'TIMEOUT_EXCEEDED',
+                                                          'TOO_MANY_ROWS_OR_BYTES', 'TOO_MANY_ROWS')):
+                            raise SigNozQueryWindowError('SigNoz 查询触及资源限制，需要缩短窗口') from error
+                finally:
+                    error.close()
+            details = classify(error, attempt + 1)
+            if not details['retryable'] or attempt == len(delays):
+                raise SigNozRequestError(details) from error
+            print(json.dumps({'event': 'signoz_query_retry', **details,
+                              'delay_seconds': delays[attempt]}, ensure_ascii=False), flush=True)
+            time.sleep(delays[attempt])
     result = data['data']['data']['results'][0]
     if result.get('nextCursor'):
-        raise RuntimeError('Truncated SQL result')
+        raise SigNozQueryWindowError('Truncated SQL result')
     if 'data' not in result:
         # Some server versions return raw rows even for SQL projections.
         if sql.startswith('SELECT count()'):
@@ -191,7 +278,7 @@ def collect_signoz(folder, start, end):
                     rows = signoz_query('SELECT '+PROJECTIONS[kind]+' '+clause, lo, hi).get('data', []) if count else []
                     if len(rows) == count:
                         return rows
-                except Exception:
+                except SigNozQueryWindowError:
                     if hi-lo <= 60000:
                         raise
                 if hi-lo <= 60000:
