@@ -58,7 +58,9 @@ def definitions():
         if not (label.startswith('com.yjl.') or label == 'com.google.GoogleUpdater.wake'):
             continue
         scripts = [part for part in data.get('ProgramArguments', []) if part.startswith('/') and re.search(r'\.(py|sh|js|mjs|ts)$', part)]
-        tasks.append({'id': label, 'label': label, 'name': 'Google 自动更新' if label.startswith('com.google.') else label,
+        display_name = {'com.yjl.tailscale-expiry-monitor': 'Tailscale 到期监控'}.get(
+            label, 'Google 自动更新' if label.startswith('com.google.') else label)
+        tasks.append({'id': label, 'label': label, 'name': display_name,
                       'icon': 'clock', 'source': 'launchd', 'category': 'system' if label.startswith('com.google.') else 'work',
                       'description': '自动发现的 launchd 定时任务。', 'script': scripts[-1] if scripts else data.get('Program', ''),
                       'log_paths': [data[key] for key in ('StandardOutPath', 'StandardErrorPath') if data.get(key)]})
