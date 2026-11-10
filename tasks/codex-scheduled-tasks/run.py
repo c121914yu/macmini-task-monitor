@@ -16,6 +16,7 @@ from pathlib import Path
 from app_rpc import AppServer, RPCError
 from common import ROOT, TASK_IDS, ZONE, configuration, period, read, run_folder, save, window
 import inputs
+import signoz_digest
 
 PYTHON = '/opt/homebrew/bin/python3'
 COLLECTORS = {'mail-digest': inputs.collect_imap, 'signoz-report': inputs.collect_signoz,
@@ -94,9 +95,13 @@ def developer_instructions(task, folder, key, config, state):
         )
     elif task == 'signoz-report':
         text += (
-            '\n读取 signoz.json：宿主已按小时（失败时继续细分）独立count/完整提取两日三类日志，'
-            '验证唯一ID和时间边界；数组列顺序在各项columns中。http_correlations仅按相同trace_id可靠归因，'
-            '多接口或失败分桶标接口未知，不猜测。基于静态核心语义归一化、聚类、去重和分析，不逐条罗列。'
+            '\n只读取 signoz-digest.json：宿主已按五分钟串行完整提取两日三类日志，验证数量、唯一ID和时间边界，'
+            '在调用模型前完成错误归一化、聚合和计数。禁止读取 signoz.json、current-*.json、previous-*.json、'
+            'signoz-groups.json 等逐条原始日志或完整分组文件；不要重新抓取或自行遍历全部错误。'
+            '每组仅有受控错误概述、计数、少量脱敏代表信息、模型及接口分布；other 是被省略长尾的准确合计，'
+            '不得遗漏或当零。可进一步合并同类分组展示，但不能改变总量或将不同状态码/错误码的原因混为一谈。'
+            '请求数为去重估算，跨组可能重叠，不能直接相加。未知错误只有脱敏元数据，不得臆测具体原因。'
+            '接口由相同trace_id可靠归因；字段缺失、多接口或失败分桶标接口未知。'
             '前一日只用于比较；最终报告日期使用本轮周期。所有总量必须与 current 各类 total 一致。'
             '首张卡片header.subtitle.content固定为 Zod N · LLM N · 插件不存在 N（替换为实际整数），宿主会核验。'
             '不得把缺少日志字段解释为客户错误、修复或已删除插件的证据。'
@@ -345,6 +350,11 @@ def run(task):
                 # A verified artifact can recover after process loss without another model call.
                 result = validate_result(task,folder)
             else:
+                if task == 'signoz-report':
+                    # 模型启动前完成确定性的聚合；校验失败时保留原始数据，不调用模型或通知。
+                    state.pop('input_summary', None)
+                    state['input_summary'] = signoz_digest.prepare_digest(folder,start,end)
+                    save(path,state)
                 result = asyncio.run(execute_model(task,config,folder,key,state,path))
             state.update({'status':result['status'],'phase':'complete','finished_at':time.time(),
                           'summary':result['summary']})
@@ -365,6 +375,9 @@ def run(task):
             elif isinstance(error, inputs.SigNozQueryWindowError):
                 state['collection_error'] = {'category':'query_window_limit','retryable':False}
                 state['summary'] = summary = 'SigNoz 数据采集失败：最小时间窗口仍触及资源限制或结果不完整'
+            elif isinstance(error, signoz_digest.DigestError):
+                state['result_error'] = {'category':'input_aggregation','message':str(error)}
+                state['summary'] = summary = 'SigNoz 模型前聚合校验失败：'+str(error)
             elif isinstance(error, SigNozResultError):
                 state['result_error'] = {'category':'result_contract','message':str(error)}
                 state['summary'] = summary = 'SigNoz 日报产物校验失败：'+str(error)
