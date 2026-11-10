@@ -146,12 +146,82 @@ class SigNozNetworkTests(unittest.TestCase):
                                     (self.lo, self.lo+1800000), (self.lo+1800000, self.hi)])
         self.assertTrue((self.folder/'signoz.json').exists())
 
+    def test_trace_correlation_resource_limit_splits_without_losing_matches(self):
+        tid = 'a'*32
+        for day in ['current', 'previous']:
+            for kind in inputs.FILTERS:
+                rows = [[self.lo*1000000, 'event', tid]] if day=='current' and kind=='llm' else []
+                common.save(self.folder/(day+'-'+kind+'.json'),
+                            {'complete':True,'total':len(rows),'rows':rows})
+        calls = []
+        route = [tid, '/api/example', '/api/example']
+        def query(sql, lo, hi):
+            calls.append((lo, hi))
+            if len(calls) == 1:
+                raise inputs.SigNozQueryWindowError('fixture memory limit')
+            return {'data': [route] if len(calls)==2 else []}
+        with patch.object(inputs, 'signoz_query', side_effect=query):
+            inputs.collect_signoz(self.folder, self.start, self.end)
+        data = common.read(self.folder/'signoz.json')
+        self.assertEqual(data['http_correlations'], [route])
+        self.assertEqual(data.get('route_query_failures', 0), 0)
+        self.assertEqual(calls[:3], [(self.lo,self.lo+1800000),
+                                    (self.lo,self.lo+900000), (self.lo+900000,self.lo+1800000)])
+
+    def test_trace_transport_gap_is_recorded_without_recursive_splitting(self):
+        tid = 'b'*32
+        for day in ['current', 'previous']:
+            for kind in inputs.FILTERS:
+                rows = [[self.lo*1000000, 'event', tid]] if day=='current' and kind=='llm' else []
+                common.save(self.folder/(day+'-'+kind+'.json'),
+                            {'complete':True,'total':len(rows),'rows':rows})
+        details = {'category':'tls_eof','retryable':True,'attempts':4,
+                   'error_type':'URLError','reason_type':'SSLEOFError'}
+        calls = []
+        def query(sql, lo, hi):
+            calls.append((lo,hi))
+            if len(calls)==1:
+                raise inputs.SigNozRequestError(details)
+            return {'data':[]}
+        with patch.object(inputs, 'signoz_query', side_effect=query):
+            inputs.collect_signoz(self.folder, self.start, self.end)
+        data = common.read(self.folder/'signoz.json')
+        self.assertEqual(len(calls), 48)
+        self.assertEqual(data['route_query_failures'], 1)
+        self.assertEqual(data['route_query_failure_details'][0]['category'], 'tls_eof')
+        self.assertEqual(data['route_query_failure_details'][0]['start_ms'], self.lo)
+        self.assertNotIn('private-fixture-key', json.dumps(data))
+
     def test_invalid_api_shape_is_not_retried_or_split_as_data_volume(self):
         with patch.object(inputs.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as request:
             with self.assertRaises(KeyError):
                 inputs.collect_signoz(self.folder, self.start, self.end)
         self.assertEqual(request.call_count, 1)
         self.sleep.assert_not_called()
+
+    def test_delivered_partial_report_reconciles_without_model_after_contract_marker_is_verified(self):
+        common.save(self.folder/'state.json', {'status':'failed','phase':'model_completed',
+                    'inputs_complete':True,'turn_id':'existing-turn'})
+        common.save(self.folder/'signoz.json', {'current': {
+            k:{'complete':True,'total':0,'rows':[]} for k in inputs.FILTERS}})
+        common.save(self.folder/'notification.json', {'status':'sent'})
+        result = {'status':'partial','summary':'报告已发送，HTTP归因有缺口'}
+        common.save(self.folder/'result.json',result)
+        with patch.object(run, 'check_config', return_value={'enabled':True}), \
+                patch.object(run,'native_paused',return_value=True), \
+                patch.object(run,'period',return_value='2026-11-08'), \
+                patch.object(run,'execute_model') as model:
+            self.assertEqual(run.run('signoz-report'),1)
+            state=common.read(self.folder/'state.json')
+            self.assertEqual(state['result_error']['category'],'result_contract')
+            self.assertIn('log_analysis_complete',state['summary'])
+            result['log_analysis_complete']=True
+            common.save(self.folder/'result.json',result)
+            self.assertEqual(run.run('signoz-report'),0)
+            state=common.read(self.folder/'state.json')
+            self.assertEqual(state['status'],'partial')
+            self.assertNotIn('result_error',state)
+            model.assert_not_called()
 
     def test_runner_records_safe_failure_without_starting_model(self):
         details = {'category': 'tls_eof', 'retryable': True, 'attempts': 4,

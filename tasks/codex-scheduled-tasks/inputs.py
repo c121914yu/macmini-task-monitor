@@ -306,17 +306,28 @@ def collect_signoz(folder, start, end):
     for offset in range(0, len(tids), 40):
         ids = ','.join("'"+v+"'" for v in tids[offset:offset+40])
         lo, hi = int(start.timestamp()*1000), int(end.timestamp()*1000)
-        for bucket in range(lo, hi, 1800000):
-            stop = min(bucket+1800000, hi)
+        def fetch_routes(left, right):
+            """归因查询遇到资源限制也拆窗；无法恢复时保留具体缺口，不猜测接口归因。"""
             sql = ("SELECT trace_id,path(JSONExtractString(body,'url')) AS url_path,"
-                   "attributes_string['http.route'] AS route " + signoz_clause(bucket, stop) +
+                   "attributes_string['http.route'] AS route " + signoz_clause(left, right) +
                    "WHERE attributes_string['category'] = '[\"http\",\"request\"]' AND trace_id IN ("+ids+")")
             try:
-                correlations += signoz_query(sql, bucket, stop).get('data', [])
-            except Exception:
-                # Missing route attribution is explicit, never guessed from a similar request.
+                return signoz_query(sql, left, right).get('data', [])
+            except Exception as error:
+                if isinstance(error, SigNozQueryWindowError) and right-left > 60000:
+                    mid = (left+right)//2
+                    return fetch_routes(left, mid) + fetch_routes(mid, right)
+                # 缺失归因可作为明确的数据缺口交付；仅保留安全诊断，不保存任意异常文本。
                 output.setdefault('route_query_failures', 0)
                 output['route_query_failures'] += 1
+                details = (error.details if isinstance(error, SigNozRequestError) else
+                           {'category':'query_window_limit' if isinstance(error, SigNozQueryWindowError)
+                            else 'unexpected_response','error_type':type(error).__name__})
+                output.setdefault('route_query_failure_details', []).append(
+                    {**details,'start_ms':left,'end_ms':right})
+                return []
+        for bucket in range(lo, hi, 1800000):
+            correlations += fetch_routes(bucket, min(bucket+1800000, hi))
     output['http_correlations'] = correlations
     save(folder / 'signoz.json', output)
     return {'totals': {k:v['total'] for k,v in output['current'].items()}}

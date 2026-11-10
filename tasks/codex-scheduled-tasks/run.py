@@ -100,6 +100,8 @@ def developer_instructions(task, folder, key, config, state):
             '前一日只用于比较；最终报告日期使用本轮周期。所有总量必须与 current 各类 total 一致。'
             '首张卡片header.subtitle.content固定为 Zod N · LLM N · 插件不存在 N（替换为实际整数），宿主会核验。'
             '不得把缺少日志字段解释为客户错误、修复或已删除插件的证据。'
+            '主日志分析和数量闭合校验完成后，result.json 必须写 log_analysis_complete:true；'
+            '仅HTTP归因不全时 status=partial 也须写该标记。尚未完成主日志分析时不能写true。'
         )
     elif task == 'pr-weekly-report':
         text += (
@@ -122,6 +124,10 @@ def developer_instructions(task, folder, key, config, state):
     return text
 
 
+class SigNozResultError(RuntimeError):
+    """SigNoz 的固定产物协议校验失败；仅允许不含业务数据的预定义消息。"""
+
+
 def validate_result(task, folder):
     """Completion requires durable business evidence; partial/unknown remains visible."""
     result = read(folder/'result.json')
@@ -130,10 +136,10 @@ def validate_result(task, folder):
     if result['status']=='partial':
         if task=='signoz-report':
             if result.get('log_analysis_complete') is not True:
-                raise RuntimeError('Primary log analysis incomplete')
+                raise SigNozResultError('主日志分析完成标记缺失：log_analysis_complete')
             data=read(folder/'signoz.json',{}).get('current',{})
             if set(data)!={'zod','llm','plugin'} or not all(x.get('complete') for x in data.values()):
-                raise RuntimeError('Primary log collection incomplete')
+                raise SigNozResultError('三类主日志未完成完整采集')
         elif task=='plugin-model-sync':
             if not (folder/'report.md').is_file():
                 raise RuntimeError('Provider audit report missing')
@@ -324,6 +330,7 @@ def run(task):
         state.pop('error_type', None)
         state.pop('rpc_error', None)
         state.pop('collection_error', None)
+        state.pop('result_error', None)
         state.update({'task':task,'period':key,'status':'running','phase':'collecting',
                       'started_at':state.get('started_at',time.time())})
         save(path,state)
@@ -358,6 +365,9 @@ def run(task):
             elif isinstance(error, inputs.SigNozQueryWindowError):
                 state['collection_error'] = {'category':'query_window_limit','retryable':False}
                 state['summary'] = summary = 'SigNoz 数据采集失败：最小时间窗口仍触及资源限制或结果不完整'
+            elif isinstance(error, SigNozResultError):
+                state['result_error'] = {'category':'result_contract','message':str(error)}
+                state['summary'] = summary = 'SigNoz 日报产物校验失败：'+str(error)
             state.update({'status':'failed','finished_at':time.time(),'error_type':type(error).__name__})
             save(path,state)
             if isinstance(error,(KeyboardInterrupt,SystemExit)):
