@@ -355,6 +355,9 @@ def run(task):
                 # 仅公开已分类的网络诊断，不序列化可能包含认证信息或业务数据的异常文本。
                 state['collection_error'] = error.details
                 state['summary'] = summary = str(error)
+            elif isinstance(error, inputs.SigNozQueryWindowError):
+                state['collection_error'] = {'category':'query_window_limit','retryable':False}
+                state['summary'] = summary = 'SigNoz 数据采集失败：最小时间窗口仍触及资源限制或结果不完整'
             state.update({'status':'failed','finished_at':time.time(),'error_type':type(error).__name__})
             save(path,state)
             if isinstance(error,(KeyboardInterrupt,SystemExit)):

@@ -92,6 +92,42 @@ class SigNozNetworkTests(unittest.TestCase):
                 self.assertEqual(inputs.signoz_query(self.sql, self.lo, self.hi)['data'], [[0]])
                 self.assertEqual(request.call_count, 2)
 
+    def test_wrapped_clickhouse_memory_error_is_a_window_limit_without_network_retry(self):
+        body = json.dumps({'status': 'error', 'error': {
+            'type': 'internal', 'code': 'internal',
+            'message': 'code: 241, message: Query memory limit exceeded: maximum: 3.60 GiB',
+            'errors': [], 'suggestions': []}}).encode()
+        error = urllib.error.HTTPError('https://example.invalid', 500, 'internal', {}, io.BytesIO(body))
+        with patch.object(inputs.urllib.request, 'urlopen', side_effect=error) as request:
+            with self.assertRaises(inputs.SigNozQueryWindowError):
+                inputs.signoz_query(self.sql, self.lo, self.hi)
+        self.assertEqual(request.call_count, 1)
+        self.sleep.assert_not_called()
+        self.assertNotIn('maximum', self.output.getvalue())
+
+    def test_unrelated_500_remains_a_server_failure(self):
+        errors = [urllib.error.HTTPError('https://example.invalid', 500, 'internal', {},
+                   io.BytesIO(b'{"error":{"message":"code: 241, unrelated internal error"}}')) for _ in range(4)]
+        with patch.object(inputs.urllib.request, 'urlopen', side_effect=errors) as request:
+            with self.assertRaises(inputs.SigNozRequestError) as caught:
+                inputs.signoz_query(self.sql, self.lo, self.hi)
+        self.assertEqual(request.call_count, 4)
+        self.assertEqual(caught.exception.details['category'], 'server_error')
+
+    def test_minimum_window_limit_has_visible_summary_and_does_not_start_model(self):
+        with patch.object(run, 'check_config', return_value={'enabled': True}), \
+                patch.object(run, 'native_paused', return_value=True), \
+                patch.object(run, 'period', return_value='2026-11-08'), \
+                patch.dict(run.COLLECTORS, {'signoz-report': lambda *args: (
+                    _ for _ in ()).throw(inputs.SigNozQueryWindowError('fixture limit'))}), \
+                patch.object(run, 'execute_model') as model:
+            self.assertEqual(run.run('signoz-report'), 1)
+        state = common.read(self.folder/'state.json')
+        self.assertEqual(state['collection_error']['category'], 'query_window_limit')
+        self.assertFalse(state['collection_error']['retryable'])
+        self.assertIn('最小时间窗口', state['summary'])
+        model.assert_not_called()
+
     def test_explicit_resource_limit_keeps_window_split_behavior(self):
         error = urllib.error.HTTPError('https://example.invalid', 500, 'query resource limit', {},
                                        io.BytesIO(b'{"message":"MEMORY_LIMIT_EXCEEDED"}'))

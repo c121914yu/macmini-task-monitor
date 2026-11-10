@@ -221,8 +221,13 @@ def signoz_query(sql, lo, hi):
                             body = error.read(16384).decode('utf-8', errors='replace').upper()
                         except (OSError, http.client.HTTPException):
                             body = ''
-                        if any(code in body for code in ('MEMORY_LIMIT_EXCEEDED', 'TIMEOUT_EXCEEDED',
-                                                          'TOO_MANY_ROWS_OR_BYTES', 'TOO_MANY_ROWS')):
+                        # SigNoz 也会仅返回 ClickHouse 的 code: 241 + 普通文字，省略符号名。
+                        # 必须同时出现错误码和内存限制描述，不能把所有 HTTP 500 都当成资源问题。
+                        memory_limit = (re.search(r'\bCODE\s*[:=]\s*241\b', body)
+                                        and re.search(r'\bMEMORY\s+LIMIT\b', body))
+                        if memory_limit or any(code in body for code in (
+                                'MEMORY_LIMIT_EXCEEDED', 'TIMEOUT_EXCEEDED',
+                                'TOO_MANY_ROWS_OR_BYTES', 'TOO_MANY_ROWS')):
                             raise SigNozQueryWindowError('SigNoz 查询触及资源限制，需要缩短窗口') from error
                 finally:
                     error.close()
@@ -282,7 +287,7 @@ def collect_signoz(folder, start, end):
                     if hi-lo <= 60000:
                         raise
                 if hi-lo <= 60000:
-                    raise RuntimeError('Count/extract mismatch at minimum bucket')
+                    raise SigNozQueryWindowError('Count/extract mismatch at minimum bucket')
                 mid = (lo+hi)//2
                 return fetch(lo, mid) + fetch(mid, hi)
             lo, hi = int(left.timestamp()*1000), int(right.timestamp()*1000)
