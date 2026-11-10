@@ -124,6 +124,11 @@ def mark_imap(folder):
     return {'status': 'marked'}
 
 
+# 先用小窗口串行读取，避免 4 GiB ClickHouse 先承受大窗扫描；资源限制仍可继续拆窗。
+SIGNOZ_QUERY_WINDOW_MS = 5 * 60_000
+SIGNOZ_MIN_QUERY_WINDOW_MS = 60_000
+SIGNOZ_TRACE_BATCH_SIZE = 40
+
 SETTINGS = ' SETTINGS max_threads=1,max_block_size=16,max_bytes_before_external_group_by=32000000'
 FILTERS = {
     'zod': """attributes_string['category'] = '["http","error"]' AND JSONExtractString(body,'__log_message') = 'Zod validation error'""",
@@ -265,7 +270,7 @@ def signoz_clause(lo, hi):
 
 
 def collect_signoz(folder, start, end):
-    """Independent count/extract checks, bounded time buckets, and unique log IDs."""
+    """按五分钟串行完整提取两日数据；逐窗 count 对照、唯一 ID 和边界校验后才标记完成。"""
     output = {}
     for day, left, right in [('current', start, end),
                               ('previous', start-dt.timedelta(days=1), start)]:
@@ -284,16 +289,16 @@ def collect_signoz(folder, start, end):
                     if len(rows) == count:
                         return rows
                 except SigNozQueryWindowError:
-                    if hi-lo <= 60000:
+                    if hi-lo <= SIGNOZ_MIN_QUERY_WINDOW_MS:
                         raise
-                if hi-lo <= 60000:
+                if hi-lo <= SIGNOZ_MIN_QUERY_WINDOW_MS:
                     raise SigNozQueryWindowError('Count/extract mismatch at minimum bucket')
                 mid = (lo+hi)//2
                 return fetch(lo, mid) + fetch(mid, hi)
             lo, hi = int(left.timestamp()*1000), int(right.timestamp()*1000)
             rows = []
-            for bucket in range(lo, hi, 3600000):
-                rows += fetch(bucket, min(bucket+3600000, hi))
+            for bucket in range(lo, hi, SIGNOZ_QUERY_WINDOW_MS):
+                rows += fetch(bucket, min(bucket+SIGNOZ_QUERY_WINDOW_MS, hi))
             if len({r[1] for r in rows}) != len(rows) or any(not lo*1000000<=int(r[0])<hi*1000000 for r in rows):
                 raise RuntimeError('Duplicate or out-of-window logs')
             item = {'complete': True, 'total': len(rows), 'columns': PROJECTIONS[kind],
@@ -303,8 +308,8 @@ def collect_signoz(folder, start, end):
     tids = sorted({r[2] for item in output['current'].values() for r in item['rows']
                    if re.fullmatch(r'[0-9a-fA-F]{32}', str(r[2])) and set(r[2]) != {'0'}})
     correlations = []
-    for offset in range(0, len(tids), 40):
-        ids = ','.join("'"+v+"'" for v in tids[offset:offset+40])
+    for offset in range(0, len(tids), SIGNOZ_TRACE_BATCH_SIZE):
+        ids = ','.join("'"+v+"'" for v in tids[offset:offset+SIGNOZ_TRACE_BATCH_SIZE])
         lo, hi = int(start.timestamp()*1000), int(end.timestamp()*1000)
         def fetch_routes(left, right):
             """归因查询遇到资源限制也拆窗；无法恢复时保留具体缺口，不猜测接口归因。"""
@@ -314,7 +319,7 @@ def collect_signoz(folder, start, end):
             try:
                 return signoz_query(sql, left, right).get('data', [])
             except Exception as error:
-                if isinstance(error, SigNozQueryWindowError) and right-left > 60000:
+                if isinstance(error, SigNozQueryWindowError) and right-left > SIGNOZ_MIN_QUERY_WINDOW_MS:
                     mid = (left+right)//2
                     return fetch_routes(left, mid) + fetch_routes(mid, right)
                 # 缺失归因可作为明确的数据缺口交付；仅保留安全诊断，不保存任意异常文本。
@@ -326,8 +331,8 @@ def collect_signoz(folder, start, end):
                 output.setdefault('route_query_failure_details', []).append(
                     {**details,'start_ms':left,'end_ms':right})
                 return []
-        for bucket in range(lo, hi, 1800000):
-            correlations += fetch_routes(bucket, min(bucket+1800000, hi))
+        for bucket in range(lo, hi, SIGNOZ_QUERY_WINDOW_MS):
+            correlations += fetch_routes(bucket, min(bucket+SIGNOZ_QUERY_WINDOW_MS, hi))
     output['http_correlations'] = correlations
     save(folder / 'signoz.json', output)
     return {'totals': {k:v['total'] for k,v in output['current'].items()}}

@@ -209,7 +209,7 @@ class MigrationTests(unittest.TestCase):
         with patch.object(inputs,'signoz_query',side_effect=query):
             result=inputs.collect_signoz(self.folder,start,end)
         self.assertEqual(result['totals'],{'zod':0,'llm':0,'plugin':0})
-        self.assertEqual(len(queries),144)
+        self.assertEqual(len(queries), 2*3*24*12)  # 两日、三类、每小时十二个五分钟窗口。
         self.assertTrue(all(q.startswith('SELECT count()') for q in queries))
         self.assertTrue(all(x.get('complete') for d in common.read(self.folder/'signoz.json').values() if isinstance(d,dict) for x in d.values()))
 

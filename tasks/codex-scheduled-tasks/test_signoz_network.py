@@ -1,7 +1,9 @@
 """只验证 SigNoz 的采集网络边界；所有请求、等待、模型和通知均为模拟。"""
 import contextlib
+import datetime as dt
 import io
 import json
+import re
 import ssl
 import tempfile
 import unittest
@@ -32,6 +34,7 @@ class SigNozNetworkTests(unittest.TestCase):
         self.start, self.end = common.window('signoz-report', '2026-11-08', 0)
         self.lo = int(self.start.timestamp()*1000)
         self.hi = self.lo+3600000
+        self.window_hi = self.lo+inputs.SIGNOZ_QUERY_WINDOW_MS
         self.sql = 'SELECT count() AS total '+inputs.signoz_clause(self.lo, self.hi)
 
     def response(self):
@@ -62,7 +65,7 @@ class SigNozNetworkTests(unittest.TestCase):
                 payloads = [json.loads(call.args[0].data) for call in request.call_args_list]
                 self.assertTrue(all(payload == payloads[0] for payload in payloads))
                 self.assertEqual(payloads[0]['start'], self.lo)
-                self.assertEqual(payloads[0]['end'], self.hi-1)
+                self.assertEqual(payloads[0]['end'], self.window_hi-1)
                 self.assertEqual(caught.exception.details['attempts'], 4)
                 self.assertEqual([c.args[0] for c in self.sleep.call_args_list], [10, 30, 60])
                 self.assertFalse((self.folder/'signoz.json').exists())
@@ -142,8 +145,9 @@ class SigNozNetworkTests(unittest.TestCase):
             return {'data': [[0]]}
         with patch.object(inputs, 'signoz_query', side_effect=query):
             inputs.collect_signoz(self.folder, self.start, self.end)
-        self.assertEqual(calls[:3], [(self.lo, self.hi),
-                                    (self.lo, self.lo+1800000), (self.lo+1800000, self.hi)])
+        self.assertEqual(calls[:3], [(self.lo, self.window_hi),
+                                    (self.lo, (self.lo+self.window_hi)//2),
+                                    ((self.lo+self.window_hi)//2, self.window_hi)])
         self.assertTrue((self.folder/'signoz.json').exists())
 
     def test_trace_correlation_resource_limit_splits_without_losing_matches(self):
@@ -165,8 +169,9 @@ class SigNozNetworkTests(unittest.TestCase):
         data = common.read(self.folder/'signoz.json')
         self.assertEqual(data['http_correlations'], [route])
         self.assertEqual(data.get('route_query_failures', 0), 0)
-        self.assertEqual(calls[:3], [(self.lo,self.lo+1800000),
-                                    (self.lo,self.lo+900000), (self.lo+900000,self.lo+1800000)])
+        self.assertEqual(calls[:3], [(self.lo,self.window_hi),
+                                    (self.lo,(self.lo+self.window_hi)//2),
+                                    ((self.lo+self.window_hi)//2,self.window_hi)])
 
     def test_trace_transport_gap_is_recorded_without_recursive_splitting(self):
         tid = 'b'*32
@@ -186,11 +191,83 @@ class SigNozNetworkTests(unittest.TestCase):
         with patch.object(inputs, 'signoz_query', side_effect=query):
             inputs.collect_signoz(self.folder, self.start, self.end)
         data = common.read(self.folder/'signoz.json')
-        self.assertEqual(len(calls), 48)
+        self.assertEqual(len(calls), 24*60//5)
         self.assertEqual(data['route_query_failures'], 1)
         self.assertEqual(data['route_query_failure_details'][0]['category'], 'tls_eof')
         self.assertEqual(data['route_query_failure_details'][0]['start_ms'], self.lo)
         self.assertNotIn('private-fixture-key', json.dumps(data))
+
+    def test_small_log_windows_cover_both_days_and_tail_without_duplicate_boundaries(self):
+        end = self.start + dt.timedelta(minutes=11, milliseconds=17)
+        spans = []
+        def query(sql, lo, hi):
+            if sql.startswith('SELECT count()'):
+                spans.append((lo, hi))
+                return {'data': [[2]]}
+            return {'data': [[lo*1000000, f'{lo}-first', ''],
+                             [(hi-1)*1000000, f'{lo}-last', '']]}
+        with patch.object(inputs, 'signoz_query', side_effect=query):
+            inputs.collect_signoz(self.folder, self.start, end)
+        snapshot = common.read(self.folder/'signoz.json')
+        day_spans = {
+            'current': (self.lo, int(end.timestamp()*1000)),
+            'previous': (self.lo-86400000, self.lo)
+        }
+        for day, (left, right) in day_spans.items():
+            for kind in inputs.FILTERS:
+                item = snapshot[day][kind]
+                self.assertTrue(item['complete'])
+                self.assertEqual(item['total'], len(item['rows']))
+                self.assertEqual(len({row[1] for row in item['rows']}), item['total'])
+                self.assertTrue(all(left*1000000 <= row[0] < right*1000000 for row in item['rows']))
+            windows = [span for span in spans if left <= span[0] < right]
+            unique = sorted(set(windows))
+            self.assertEqual(len(windows), len(unique)*len(inputs.FILTERS))
+            self.assertEqual(unique[0][0], left)
+            self.assertEqual(unique[-1][1], right)
+            self.assertTrue(all(0 < hi-lo <= 300000 for lo, hi in unique))
+            self.assertTrue(all(a[1] == b[0] for a,b in zip(unique, unique[1:])))
+
+    def test_trace_id_batches_each_cover_small_windows_including_the_tail(self):
+        end = self.start + dt.timedelta(minutes=11, milliseconds=17)
+        end_ms = int(end.timestamp()*1000)
+        tids = [f'{n:032x}' for n in range(1,42)]
+        for day in ['current', 'previous']:
+            for kind in inputs.FILTERS:
+                rows = [[self.lo*1000000, f'event-{i}', tid] for i,tid in enumerate(tids)] if day=='current' and kind=='llm' else []
+                common.save(self.folder/(day+'-'+kind+'.json'),
+                            {'complete':True,'total':len(rows),'rows':rows})
+        spans = {}
+        route = [tids[-1], '/api/example', '/api/example']
+        def query(sql, lo, hi):
+            batch = tuple(re.findall(r"'([0-9a-f]{32})'", sql))
+            spans.setdefault(batch, []).append((lo,hi))
+            return {'data': [route] if tids[-1] in batch and hi==end_ms else []}
+        with patch.object(inputs, 'signoz_query', side_effect=query):
+            inputs.collect_signoz(self.folder, self.start, end)
+        self.assertEqual(sorted(map(len, spans)), [1,40])
+        self.assertEqual({tid for batch in spans for tid in batch}, set(tids))
+        for windows in spans.values():
+            self.assertEqual(windows[0][0], self.lo)
+            self.assertEqual(windows[-1][1], end_ms)
+            self.assertTrue(all(0 < hi-lo <= 300000 for lo,hi in windows))
+            self.assertTrue(all(a[1] == b[0] for a,b in zip(windows, windows[1:])))
+        snapshot = common.read(self.folder/'signoz.json')
+        self.assertEqual(snapshot['http_correlations'], [route])
+        self.assertEqual(snapshot.get('route_query_failures', 0), 0)
+
+    def test_count_mismatch_in_minimum_window_never_publishes_incomplete_data(self):
+        end = self.start + dt.timedelta(minutes=1)
+        calls = []
+        def query(sql,lo,hi):
+            calls.append((lo,hi))
+            return {'data': [[1]]} if sql.startswith('SELECT count()') else {'data': []}
+        with patch.object(inputs, 'signoz_query', side_effect=query):
+            with self.assertRaises(inputs.SigNozQueryWindowError):
+                inputs.collect_signoz(self.folder, self.start, end)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse((self.folder/'signoz.json').exists())
+        self.assertFalse((self.folder/'current-zod.json').exists())
 
     def test_invalid_api_shape_is_not_retried_or_split_as_data_volume(self):
         with patch.object(inputs.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as request:
