@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import collector
+import calendar_api
 import store
 from config import DB_PATH, ROOT, ZONE, redact
 
@@ -87,6 +88,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/overview':
                 self.respond(200, snapshot())
+            elif path == '/api/calendar':
+                query = parse_qs(url.query)
+                start = query.get('start', [dt.datetime.now(ZONE).date().isoformat()])[0]
+                self.respond(200, calendar_api.week_snapshot(start))
             elif path == '/api/health':
                 with store.connect() as db:
                     db.execute('SELECT 1').fetchone()
@@ -123,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
                 if task_id == 'fastgpt-backup':
                     paths = [*paths, str(Path('/Users/yjl/.local/share/fastgpt-backup/logs') / (dt.datetime.now(ZONE).date().isoformat() + '.log'))]
                 self.respond(200, {'items': [log_tail(path) for path in dict.fromkeys(paths)]})
-            elif path in ('/', '/index.html', '/app.js', '/styles.css', '/favicon.svg'):
+            elif path in ('/', '/index.html', '/app.js', '/calendar.js', '/styles.css', '/favicon.svg'):
                 asset = ROOT / 'web' / ('index.html' if path == '/' else path.lstrip('/'))
                 mime = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'}[asset.suffix]
                 self.respond(200, asset.read_bytes(), mime)

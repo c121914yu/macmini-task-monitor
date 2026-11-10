@@ -91,6 +91,31 @@ async function until(callback, message) {
     w.location.hash = '#task/pr-report';
     await until(() => document.querySelector('h1')?.textContent === 'PR 审查日报', '日报详情未加载');
     assert.ok(document.querySelector('.report-list tbody tr'));
+    w.location.hash = '#calendar';
+    await until(() => document.querySelectorAll('.cal-day').length === 7 && document.querySelector('.cal-event'), '周日历未加载');
+    assert.equal(document.querySelectorAll('.cal-hour-row').length, 24);
+    assert.equal([...document.querySelectorAll('.cal-day')].filter(node=>node.getAttribute('aria-pressed')==='true').length, 1);
+    assert.ok(document.querySelector('.cal-recurring-grid').textContent.includes('PR 扫描'));
+    assert.ok(!document.querySelector('.cal-grid').textContent.includes('PR 扫描'));
+    const previousWeek = document.querySelector('.cal-date-controls h2').textContent;
+    document.querySelector('[data-cal-shift="7"]').click();
+    await until(() => document.querySelector('.cal-date-controls h2').textContent !== previousWeek && document.querySelector('.cal-event'), '周切换未加载');
+    document.querySelector('[data-cal-today]').click();
+    await until(() => document.querySelector('.cal-date-controls h2').textContent === previousWeek && document.querySelector('.cal-event'), '回到今天无效');
+    change(document.querySelector('#calendar-task'), 'pr-report');
+    assert.ok([...document.querySelectorAll('.cal-event')].every(node => node.textContent.includes('PR 审查日报')));
+    document.querySelector('[data-cal-day]').click();
+    assert.equal(document.querySelectorAll('.cal-day[aria-pressed="true"]').length, 1);
+    change(document.querySelector('#calendar-task'), '');
+    document.querySelector('[data-cal-mode="actual"]').click();
+    assert.equal(document.querySelector('[data-cal-mode="actual"]').getAttribute('aria-pressed'), 'true');
+    const calendarRun = document.querySelector('.cal-event[data-run]');
+    if (calendarRun) {
+      calendarRun.click();
+      await until(() => document.querySelector('#run-dialog').open, '日历执行记录详情未打开');
+      document.querySelector('#close-dialog').click();
+    }
+    console.log('PASS 周日历、持续调度折叠、日期切换、任务筛选、实际执行与详情');
     w.location.hash = '#services';
     await until(() => document.querySelectorAll('.service-card').length === source.collector.services.length, '服务状态未显示');
     assert.ok(document.querySelector('.system-heading').textContent.includes('系统定时任务'));

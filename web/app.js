@@ -38,7 +38,31 @@ const taskHref = (id) => `#task/${encodeURIComponent(id)}`;
 const state = { data: null, route: '', taskSearch: '', filters: { task_id: '', status: 'non_skipped', kind: '', days: '7', search: '' }, offset: 0, history: null, historyTicket: 0, logs: new Map(), shownLogs: new Set(), loading: false, dialogRun: null };
 const main = document.querySelector('#main');
 const dialog = document.querySelector('#run-dialog');
+const calendarState = { start: MiniCalendar.weekStart(MiniCalendar.dateKey(Date.now()/1000)), selected: MiniCalendar.dateKey(Date.now()/1000), mode: 'planned', task: '', data: null, ticket: 0, followDay: true };
 let searchTimer;
+
+/** Preserve scroll while polling; stale responses must never overwrite another week's view. */
+function calendarPage() {
+  return heading('任务日历', '看清一周安排，追踪每一次实际执行。') + '<div id="calendar-content">'+MiniCalendar.view(calendarState.data, state.data.tasks, calendarState, { esc, icon, badge, taskHref, duration, labels })+'</div>';
+}
+function updateCalendar(followDay = false) {
+  const target=document.querySelector('#calendar-content');
+  if (!target) return;
+  const old=document.querySelector('#calendar-scroll'), x=old?.scrollLeft??0, y=old?.scrollTop??0;
+  target.innerHTML=MiniCalendar.view(calendarState.data,state.data.tasks,calendarState,{esc,icon,badge,taskHref,duration,labels});
+  const next=document.querySelector('#calendar-scroll');
+  if(next){next.scrollLeft=x;next.scrollTop=y;
+    if(followDay&&next.scrollWidth>next.clientWidth){const day=target.querySelector('.cal-day.selected');if(day)next.scrollLeft=Math.max(0,day.offsetLeft+day.offsetWidth/2-next.clientWidth/2);}
+  }
+}
+async function loadCalendar() {
+  const ticket=++calendarState.ticket;
+  try {
+    const data=await api('/api/calendar?start='+encodeURIComponent(calendarState.start));
+    if(ticket!==calendarState.ticket) return;
+    calendarState.data=data; updateCalendar(calendarState.followDay); calendarState.followDay=false;
+  } catch(error) {if(ticket===calendarState.ticket) toast('日历读取失败：'+error.message);}
+}
 
 /** 所有数据显示都转义后插入；接口不提供执行、暂停或修改任务的动作。 */
 async function api(path) {
@@ -200,14 +224,17 @@ function currentTaskId() {
 /** 自动刷新时恢复输入焦点和光标，避免搜索与筛选被刷新打断。 */
 function render() {
   if (!state.data) return;
+  const calendarScroll = document.querySelector('#calendar-scroll');
+  const calendarPosition = calendarScroll ? [calendarScroll.scrollLeft,calendarScroll.scrollTop] : null;
   const focused = document.activeElement;
   const focusId = focused?.id;
   const selection = focused instanceof HTMLInputElement ? [focused.selectionStart, focused.selectionEnd] : null;
   const taskId = currentTaskId();
   const route = taskId ? 'task' : location.hash.slice(1) || 'overview';
   document.querySelectorAll('[data-nav]').forEach((node) => node.classList.toggle('active', node.dataset.nav === (route === 'task' ? 'overview' : route)));
-  document.querySelector('#breadcrumb').textContent = route === 'task' ? taskName(taskId) : ({ overview: '任务总览', history: '执行记录', services: '后台服务' })[route] ?? '任务总览';
+  document.querySelector('#breadcrumb').textContent = route === 'task' ? taskName(taskId) : ({ overview: '任务总览', history: '执行记录', services: '后台服务', calendar: '任务日历' })[route] ?? '任务总览';
   if (route === 'history') main.innerHTML = heading('执行记录', '每一次运行的结果，都有据可查。', 'MAC MINI / RUN HISTORY') + historyPanel();
+  else if (route === 'calendar') main.innerHTML = calendarPage();
   else if (route === 'services') main.innerHTML = services();
   else if (route === 'task') {
     const task = state.data.tasks.find((item) => item.id === taskId);
@@ -217,6 +244,10 @@ function render() {
     if (state.history && state.route === location.hash) document.querySelector('#history-content')?.replaceChildren();
     loadHistory(taskId);
     if (taskId && state.shownLogs.has(taskId)) loadLogs(taskId);
+  }
+  if (route === 'calendar') {
+    if(calendarPosition){const viewport=document.querySelector('#calendar-scroll');viewport.scrollLeft=calendarPosition[0];viewport.scrollTop=calendarPosition[1];}
+    loadCalendar();
   }
   state.route = location.hash;
   if (focusId) {
@@ -272,6 +303,14 @@ window.addEventListener('hashchange', () => { state.offset = 0; state.history = 
 document.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
+  const calendarControl = target.closest('[data-cal-day], [data-cal-mode], [data-cal-shift], [data-cal-today], [data-cal-agenda]');
+  if (calendarControl) {
+    if(calendarControl.hasAttribute('data-cal-agenda')) {document.querySelector('.cal-agenda')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});return;}
+    if (calendarControl.hasAttribute('data-cal-today')) {calendarState.selected=MiniCalendar.dateKey(state.data.now);calendarState.start=MiniCalendar.weekStart(calendarState.selected);calendarState.data=null;calendarState.followDay=true;updateCalendar();loadCalendar();}
+    else if (calendarControl.dataset.calShift) {calendarState.start=MiniCalendar.addDays(calendarState.start,Number(calendarControl.dataset.calShift));calendarState.selected=MiniCalendar.addDays(calendarState.selected,Number(calendarControl.dataset.calShift));calendarState.data=null;calendarState.followDay=true;updateCalendar();loadCalendar();}
+    else {if(calendarControl.dataset.calDay)calendarState.selected=calendarControl.dataset.calDay;if(calendarControl.dataset.calMode)calendarState.mode=calendarControl.dataset.calMode;updateCalendar();}
+    return;
+  }
   if (target.closest('#retry')) { refresh(true); return; }
   if (target.closest('#close-dialog')) { dialog.close(); return; }
   if (target.closest('#refresh-dialog')) { showRun(state.dialogRun, false); return; }
@@ -291,6 +330,7 @@ document.addEventListener('keydown', (event) => {
 });
 document.addEventListener('change', (event) => {
   const target = event.target;
+  if (target.id === 'calendar-task') {calendarState.task=target.value;updateCalendar();return;}
   if (target instanceof HTMLSelectElement && target.dataset.filter) { state.filters[target.dataset.filter] = target.value; state.offset = 0; loadHistory(currentTaskId()); }
 });
 document.addEventListener('input', (event) => {

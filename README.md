@@ -71,3 +71,9 @@ node --check web/app.js
 ## Codex 四项任务迁移
 
 个人邮件日报（07:00）、SigNoz 错误日报（07:00）、Plugin 模型更新（01:30）、每周 PR 汇总（周五 10:00）已使用系统 launchd 调度并接入本看板。运行目录 /Users/yjl/.local/share/codex-scheduled-tasks；原 Codex 定时器保持 PAUSED，原记忆、周报会话与文档凭据保留。邮件和 Plugin 使用 gpt-6.1-sol / medium，其他两项 xhigh，均关闭 Fast。所有通知使用统一限流重试；凭据和运行数据不入 Git。实现、验证及恢复说明见 tasks/codex-scheduled-tasks/README.md。
+
+## 任务日历
+
+`/#calendar` 提供北京时间周日历、任务筛选、计划 / 实际执行切换与当天明细。计划按当前 launchd 配置投影，不用于回填历史；实际执行沿用 7 天账本，默认隐藏跳过，未知开始时间明确显示为记录时间。高频间隔和每小时任务合并为持续调度区，不推算固定开始时刻；点击实际记录查看既有日志。`GET /api/calendar?start=YYYY-MM-DD` 为只读七日视图，支持前后一年内起始日期，每次最多读取 10,000 条记录，超出时明确提示。
+
+日历局部验证：`python3 -m unittest discover -s tests -p test_calendar.py -v`、`node tests/calendar.cjs` 及 `node tests/frontend.cjs`。
