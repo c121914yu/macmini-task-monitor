@@ -119,7 +119,7 @@ def developer_instructions(task, folder, key, config, state):
             '每轮同步 upstream/main，保留已有修改和未合并PR，不新建worktree。'
             '上次PR合并/关闭后才从最新upstream/main开始下一期；无实际变更不创建空提交或PR。'
             '本任务原本没有webhook通知，勿调用notify.py或发送额外消息。'
-            '按skill完成全部provider候选账本、必要校验，再提交或更新同一PR。'
+            '先读取skill的references/provider_allowlist.json及inventory --json，只检查白名单厂商的静态预设。禁止扫描白名单外的目录或将其候选计入待核验；按白名单完成候选账本、必要校验，再提交或更新同一PR。报告分别列出白名单覆盖、范围外排除和真正的范围内阻塞；范围外不导致partial，范围内证据缺失仍如实partial。'
         )
     return text
 

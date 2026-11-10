@@ -1,1 +1,1 @@
-使用 skill 来进行一次模型检查并提交 pr。要求：都使用叫做 codex/plugin-model-sync 的分支进行工作，每次工作区同步一次 upstream main代码。提交到 pr 时候，如果上一个 pr 未合并，则推送到同一个 pr。
+使用 $model-provider-updater 检查并更新静态模型预设。范围仅限 skill 的 references/provider_allowlist.json，先用 inventory --json 核对，不检查白名单外厂商及动态模型目录。使用 codex/plugin-model-sync 分支，每轮同步 upstream/main；已有 PR 未合并则更新同一个 PR。保留已有配置，完成白名单内证据核验；只因范围内真实缺项才标记部分完成。
