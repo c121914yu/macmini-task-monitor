@@ -1,0 +1,55 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -26,0 +27 @@
++APP_PACKAGE = 'projects/app/package.json'
+@@ -151 +152,2 @@
+-            'document/data/doc-last-modified.json', 'document/content/toc.mdx', 'document/content/toc.en.mdx'}
++            'document/data/doc-last-modified.json', 'document/content/toc.mdx', 'document/content/toc.en.mdx',
++            APP_PACKAGE}
+@@ -157,0 +160,32 @@
++
++
++def check_app_version(wt, reference):
++    """允许应用 version 元数据变化；分别检查文件与索引，防止依赖/脚本修改被工作区掩盖。"""
++    baseline = None
++    for cached in (False, True):
++        options = ['--cached'] if cached else []
++        paths = git(wt, ['diff', *options, '--name-only', reference, '--', APP_PACKAGE]).splitlines()
++        if APP_PACKAGE not in paths:
++            continue
++        if baseline is None:
++            baseline = json.loads(git(wt, ['show', f'{reference}:{APP_PACKAGE}']))
++        try:
++            if cached:
++                current = json.loads(git(wt, ['show', f':{APP_PACKAGE}']))
++            else:
++                path = wt / APP_PACKAGE
++                if path.is_symlink():
++                    raise ValueError('unsupported metadata file')
++                current = json.loads(path.read_text())
++            if not isinstance(baseline, dict) or not isinstance(current, dict):
++                raise ValueError('invalid metadata object')
++            version = current.get('version')
++            if not isinstance(version, str) or not version.strip():
++                raise ValueError('missing version')
++            before = {key:value for key,value in baseline.items() if key != 'version'}
++            after = {key:value for key,value in current.items() if key != 'version'}
++            # JSON 序列化保留类型差异，避免 Python 将 true 与 1 等同而放行非版本修改。
++            if json.dumps(before, sort_keys=True) != json.dumps(after, sort_keys=True):
++                raise ValueError('non-version metadata change')
++        except (ValueError, OSError):
++            raise RuntimeError(APP_PACKAGE + ' 仅允许修改 version，其他字段或无效内容仍保留现场') from None
+@@ -315,0 +350 @@
++        check_app_version(wt, 'HEAD')
+@@ -411,0 +447 @@
++    check_app_version(wt, run['target'])
+@@ -435 +471,3 @@
+-        '只修改指定版本页面、相关中英文导航和流程要求的文档时间元数据。'
++        '只修改指定版本页面、相关中英文导航和流程要求的文档时间元数据；'
++        'projects/app/package.json 仅 version 字段属于允许的版本元数据，已有版本号变更可以保留，不算越界；'
++        '不得修改该文件的依赖、scripts 或其他字段。'
+@@ -624 +662 @@
+-                    if (wt / p).exists() and p != 'document/data/doc-last-modified.json']
++                    if (wt / p).exists() and p not in ('document/data/doc-last-modified.json', APP_PACKAGE)]
+@@ -665,0 +704 @@
++        check_app_version(wt, run['target'])
