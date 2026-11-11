@@ -1,0 +1,14 @@
+--- a/test_scheduling.py
++++ b/test_scheduling.py
+@@ -78 +78 @@
+-    def test_two_concurrent_slots_fifo_and_no_duplicate_claims(self):
++    def test_three_concurrent_slots_fifo_and_no_duplicate_claims(self):
+@@ -87 +87 @@
+-            root=Path(temp);entries={'1':entry(queued=2),'2':entry(queued=1),'3':entry(queued=3)}
++            root=Path(temp);entries={'1':entry(queued=2),'2':entry(queued=1),'3':entry(queued=3),'4':entry(queued=4)}
+@@ -91 +91 @@
+-                self.assertEqual(starts,[2,1,3])
++                self.assertEqual(starts,[2,1,3,4])
+@@ -97 +97 @@
+-                self.assertEqual(maximum,2)
++                self.assertEqual(maximum,3)

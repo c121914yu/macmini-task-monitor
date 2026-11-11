@@ -1,0 +1,8 @@
+--- a/scheduling.py
++++ b/scheduling.py
+@@ -8 +8 @@
+-MAX_CONCURRENT = 2
++MAX_CONCURRENT = 3
+@@ -45 +45 @@
+-    """一次只读请求检查最多两个活跃 PR，不调用模型；关闭或转为草稿也应停止。"""
++    """一次只读请求检查所有活跃 PR（并发上限由 MAX_CONCURRENT 决定），不调用模型；关闭或转为草稿也应停止。"""
