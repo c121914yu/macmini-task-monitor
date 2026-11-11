@@ -1,0 +1,148 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -193,0 +194,93 @@
++def external_snapshot(config, run):
++    """只记录文档范围外的工作区与索引指纹；既有内容可保留，后续新增修改须拦截。"""
++    wt = Path(config['worktree'])
++    allowed = allowed_paths(config['version']) - {APP_PACKAGE}
++    paths = set()
++    for options in ([], ['--cached']):
++        paths.update(filter(None, git(wt, ['diff', *options, '--no-renames', '--name-only', '-z', run['target']]).split('\0')))
++    paths.update(filter(None, git(wt, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0')))
++    # version 仍可作为任务元数据更新；其余 package 字段以处理前实际内容为准。
++    if (wt / APP_PACKAGE).exists():
++        paths.add(APP_PACKAGE)
++    baseline = run.get('external_baseline', {})
++    paths.update(baseline.get('files', {}))
++
++    def fingerprint(content, relative):
++        if relative == APP_PACKAGE:
++            value = json.loads(content)
++            if not isinstance(value, dict) or not isinstance(value.get('version'), str) or not value['version'].strip():
++                raise RuntimeError(APP_PACKAGE + ' 版本元数据格式无效')
++            content = json.dumps({k:v for k,v in value.items() if k != 'version'}, sort_keys=True).encode()
++        return hashlib.sha256(content).hexdigest()
++
++    snapshot = {}
++    for relative in sorted(paths - allowed):
++        entries = git(wt, ['ls-files', '--stage', '-z', '--', relative]).split('\0')
++        index = []
++        for entry in filter(None, entries):
++            header, name = entry.split('\t', 1)
++            if name != relative:
++                continue
++            mode, blob, stage = header.split()
++            if stage != '0':
++                raise RuntimeError('外部内容仍有未解决的合并冲突，保留现场：' + relative)
++            if relative == APP_PACKAGE and mode == '100644':
++                blob = fingerprint(git(wt, ['show', ':' + relative]).encode(), relative)
++            index.append([mode, blob])
++        path = wt / relative
++        if index and index[0][0] == '160000':
++            # Gitlink 内容以暂存指针为准；不 checkout、修改或递归扫描外部 Pro 工作区。
++            working = {'kind': 'gitlink'}
++        elif path.is_symlink():
++            working = {'kind': 'symlink', 'target': os.readlink(path)}
++        elif path.is_file():
++            working = {'kind': 'file', 'executable': bool(path.stat().st_mode & 0o111),
++                       'sha256': fingerprint(path.read_bytes(), relative)}
++        elif path.exists():
++            raise RuntimeError('无法记录外部内容类型，保留现场：' + relative)
++        else:
++            working = {'kind': 'absent'}
++        snapshot[relative] = {'index': index, 'working': working}
++    return snapshot
++
++
++def preserve_external_content(config, run, capture=False):
++    """固定本轮外部基线；重试仅核对，不把模型修改重新登记为既有外部内容。"""
++    baseline = run.get('external_baseline')
++    if baseline and (baseline.get('target') != run['target'] or baseline.get('version') != config['version']):
++        raise RuntimeError('外部内容基线与固定任务不一致，保留现场')
++    if not baseline and not capture:
++        return False
++    if not baseline and (run.get('turn_id') or run.get('model_completed')):
++        raise RuntimeError('模型已执行但缺少外部内容基线，需要核对已有产物后恢复')
++    snapshot = external_snapshot(config, run)
++    if baseline:
++        changed = [p for p in sorted(set(snapshot) | set(baseline['files']))
++                   if snapshot.get(p) != baseline['files'].get(p)]
++        if changed:
++            raise RuntimeError('本轮改变了文档范围外的既有内容，保留现场：' + ', '.join(changed))
++    else:
++        # 与运行凭据一起原子保存，避免存在清单但状态丢失时悄悄重建基线。
++        run['external_baseline'] = {'version': config['version'], 'target': run['target'],
++                                    'captured_at': time.time(), 'files': snapshot}
++        save_run(run)
++    return True
++
++
++def preserve_pro_merge(wt, run):
++    """文档分支已有 Pro gitlink 属于外部内容，冲突时保留 ours，不合并或重置 Pro 代码。"""
++    if 'pro' not in git(wt, ['diff', '--name-only', '--diff-filter=U']).splitlines():
++        return
++    entries = {}
++    for line in git(wt, ['ls-files', '--stage', '--', 'pro']).splitlines():
++        header, _ = line.split('\t', 1)
++        mode, sha, stage = header.split()
++        entries[stage] = (mode, sha)
++    if set(entries) != {'1', '2', '3'} or any(mode != '160000' for mode, _ in entries.values()):
++        raise RuntimeError('Pro 冲突不是已有 gitlink 更新，保留现场等待核对')
++    ours, incoming = entries['2'][1], entries['3'][1]
++    git(wt, ['update-index', '--cacheinfo', '160000', ours, 'pro'])
++    run['preserved_pro_merge'] = {'ours': ours, 'incoming': incoming,
++                                  'policy': 'preserve-existing-external-gitlink'}
++
++
+@@ -339,0 +433 @@
++    preserve_external_content(config, run)
+@@ -347,4 +440,0 @@
+-        scoped_changes(config, run)
+-    else:
+-        check_paths(dirty, config['version'])
+-        check_app_version(wt, 'HEAD')
+@@ -368 +457,0 @@
+-            check_paths(conflicts, config['version'])
+@@ -399,0 +489 @@
++    preserve_pro_merge(wt, run)
+@@ -413,0 +504 @@
++    preserve_external_content(config, run, capture=True)
+@@ -442 +533 @@
+-    """同步 main 后按固定 target 检查实际内容，允许 merge 暂存区中与 main 完全一致的文件。"""
++    """只检查本轮任务增量；保留处理前外部内容，分别验证工作区与索引。"""
+@@ -446,3 +537,5 @@
+-    check_paths(actual, config['version'])
+-    check_app_version(wt, run['target'])
+-    return changed_files(wt)
++    if not preserve_external_content(config, run):
++        # 历史已生成任务没有处理前基线时继续严格校验，不能事后放行未知修改。
++        check_paths(actual, config['version'])
++        check_app_version(wt, run['target'])
++    return [p for p in changed_files(wt) if p in allowed_paths(config['version'])]
+@@ -473 +566,3 @@
+-        '不得修改该文件的依赖、scripts 或其他字段。'
++        '依赖、scripts 或其他字段以处理前实际内容为准，本轮不得修改。'
++        '宿主已记录处理前外部内容基线：已有产品代码、FAQ、锁文件及 Pro 指针等外部内容允许原样保留，'
++        '不得还原、清理或改动这些内容，也不要因其存在而报告文档任务失败；仅修改本轮允许的文档产物。'
+@@ -628,0 +724 @@
++    preserve_external_content(config, run)
+@@ -694 +790 @@
+-    if paths:
++    if paths or git(wt, ['diff', '--cached', '--name-only']) or Path(git(wt, ['rev-parse', '--path-format=absolute', '--git-path', 'MERGE_HEAD'])).exists():
+@@ -699 +795 @@
+-        check_paths(unstaged, config['version'])
++        unstaged.intersection_update(allowed_paths(config['version']))
+@@ -703,2 +799,5 @@
+-        check_paths(git(wt, ['diff', '--cached', '--name-only', run['target']]).splitlines(), config['version'])
+-        check_app_version(wt, run['target'])
++        if preserve_external_content(config, run):
++            scoped_changes(config, run)
++        else:
++            check_paths(git(wt, ['diff', '--cached', '--name-only', run['target']]).splitlines(), config['version'])
++            check_app_version(wt, run['target'])
+@@ -711,2 +810,3 @@
+-    check_paths(diff, config['version'])
+-    if not diff:
++    if not preserve_external_content(config, run):
++        check_paths(diff, config['version'])
++    if not set(diff) & allowed_paths(config['version']):

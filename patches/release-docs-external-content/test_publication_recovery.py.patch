@@ -1,0 +1,7 @@
+--- a/test_publication_recovery.py
++++ b/test_publication_recovery.py
+@@ -29,0 +30,4 @@
++        # 新固定 target 是新一轮任务，不沿用上轮外部基线。
++        run.pop('external_baseline', None)
++        with patch.object(docs, 'save_run'):
++            docs.preserve_external_content(self.config, run, capture=True)

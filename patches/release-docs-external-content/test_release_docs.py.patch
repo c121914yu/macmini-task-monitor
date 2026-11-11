@@ -1,0 +1,14 @@
+--- a/test_release_docs.py
++++ b/test_release_docs.py
+@@ -196 +196 @@
+-    def test_real_product_modification_still_blocks_without_overwriting_it(self):
++    def test_existing_external_product_modification_is_preserved(self):
+@@ -198,2 +198,2 @@
+-        with self.assertRaisesRegex(RuntimeError,'文档范围外'):
+-            self.prepare()
++        self.prepare()
++        docs.scoped_changes(self.config, self.run)
+@@ -201 +201,2 @@
+-        self.assertIn(self.meta,self.git('diff','--name-only','--diff-filter=U'))
++        self.assertIn('app.ts', self.run['external_baseline']['files'])
++        self.assertEqual(self.git('diff','--name-only','--diff-filter=U'),'')
