@@ -1,0 +1,93 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -401,0 +402,64 @@
++def reconcile_merged_pr(config, state, run):
++    """重试耗尽也检查 PR 生命周期；已合入任务归档，不伪造模型成功或推进代码覆盖游标。"""
++    if not state.get('pr_number'):
++        return False
++    pr = latest_pr(state)
++    if not pr or pr['state'] != 'MERGED':
++        return False
++    if pr.get('headRefName') != state.get('branch'):
++        raise RuntimeError('已合入 PR 与记录分支不一致，保留原任务')
++    merged = pr.get('merge_commit_sha')
++    if not merged:
++        raise RuntimeError('已合入 PR 缺少合入提交，保留原任务')
++    repo = Path(config['repo_root'])
++    main = git(repo, ['rev-parse', 'upstream/main^{commit}'])
++    for commit in (merged, run['target']):
++        if git(repo, ['merge-base', commit, main]) != commit:
++            raise RuntimeError('已合入 PR 或固定目标未包含在当前 main，保留原任务核对历史')
++    if run.get('turn_pending') or (run.get('turn_id') and not run.get('model_completed')):
++        raise RuntimeError('文档 PR 已合入，但原模型轮次结果尚未核对，保留原任务')
++    wt = Path(config['worktree'])
++    if wt.exists() and git(wt, ['status', '--porcelain', '--untracked-files=normal']):
++        raise RuntimeError('文档 PR 已合入，但固定 worktree 有未提交内容，保留现场')
++    # 归档只表示旧 PR 已结束；未生成的文档不能记为已验证，累计次数和旧错误继续保留。
++    run.update({'status': 'superseded', 'finished_at': time.time(),
++                'superseded_by': {'reason': 'associated_pr_merged', 'pr_number': state['pr_number'],
++                                  'merge_commit': merged, 'observed_main': main}})
++    save_run(run)
++    state.pop('active_run', None)
++    state.update({'status': 'idle', 'checked_at': time.time()})
++    save(STATE, state)
++    emit('docs_reconciled', version=config['version'], pr=state['pr_number'],
++         reason='associated_pr_merged', attempts=run['attempts'], model_called=False)
++    return True
++
++
++def sync_doc_branch(config, state, run):
++    """同步远端文档历史：允许干净分叉的正常合并，固定远端合并快照且不覆盖生成后内容。"""
++    repo, wt = Path(config['repo_root']), Path(config['worktree'])
++    branch = state['branch']
++    git(repo, ['fetch', 'origin', f'+refs/heads/{branch}:refs/remotes/origin/{branch}'])
++    remote = git(wt, ['rev-parse', f'origin/{branch}'])
++    local = git(wt, ['rev-parse', 'HEAD'])
++    if git(wt, ['merge-base', local, remote]) == remote:
++        return
++    if changed_files(wt) or run.get('external_baseline') or any(
++            run.get(k) for k in ('turn_pending', 'turn_id', 'model_completed', 'content_commit')):
++        raise RuntimeError('远端文档分支有新提交，本地已有未完成内容或生成凭据，保留现场等待协调')
++    # 普通合并保留两边提交；先保存 SHA，异常重试不跟随被再次改写的远端指针。
++    run['remote_sync'] = {'head': remote, 'local_head': local, 'target': run['target']}
++    save_run(run)
++    result = command(['git', '-c', 'core.hooksPath=/dev/null', '-C', str(wt),
++                      'merge', '--no-edit', remote], {'allow_failure': True})
++    if not result.returncode:
++        return
++    conflicts = git(wt, ['diff', '--name-only', '--diff-filter=U']).splitlines()
++    if not conflicts:
++        raise RuntimeError('无法同步远端文档分支：' + result.stderr[-1200:])
++    check_paths(set(conflicts) - {'pro'}, config['version'])
++    # 冲突可以交给原文档模型处理，但固定 main 必须已包含在至少一侧父提交中。
++    if not any(git(wt, ['merge-base', run['target'], side]) == run['target']
++               for side in (local, remote)):
++        raise RuntimeError('远端文档冲突尚未覆盖固定 main 目标，保留合并现场等待协调')
++
++
+@@ -434 +497,0 @@
+-    dirty = changed_files(wt)
+@@ -437 +499,0 @@
+-        # 未完成合并只能接续原快照；不能拿新 main 的内容反向误报为本地越界修改。
+@@ -439 +501,3 @@
+-        if incoming != run['target']:
++        remote = run.get('remote_sync', {})
++        known_remote = remote.get('head') == incoming and remote.get('target') == run['target']
++        if incoming != run['target'] and not known_remote:
+@@ -441,6 +505,7 @@
+-    if pr:
+-        git(repo, ['fetch', 'origin', f'+refs/heads/{branch}:refs/remotes/origin/{branch}'])
+-        if not dirty:
+-            git(wt, ['merge', '--ff-only', f'origin/{branch}'])
+-        elif git(wt, ['merge-base', 'HEAD', f'origin/{branch}']) != git(wt, ['rev-parse', f'origin/{branch}']):
+-            raise RuntimeError('远端文档分支有人工新提交，且本地有未完成改动，保留现场等待协调')
++        if known_remote and not any(
++                git(wt, ['merge-base', run['target'], side]) == run['target']
++                for side in ('HEAD', incoming)):
++            raise RuntimeError('远端文档冲突尚未覆盖固定 main 目标，保留合并现场等待协调')
++        # 恢复已有合并时不再 fetch/merge 远端，否则 HEAD 尚未包含 MERGE_HEAD 会被误判为新提交。
++    elif pr:
++        sync_doc_branch(config, state, run)
+@@ -913,0 +979,2 @@
++    if run is pending and reconcile_merged_pr(config, state, run):
++        return
