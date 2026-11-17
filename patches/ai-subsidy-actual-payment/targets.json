@@ -1,0 +1,27 @@
+[
+  {
+    "relative_path": "rules.py",
+    "before_sha256": "2208132a1dff0fadb4971f258dc787604d33dd3d850e5c057a3223084dd86ce7",
+    "after_sha256": "66cc242c26af0ed5d5b02fdfcbf149e5fa28178912a2379bd5e300c267ea333a"
+  },
+  {
+    "relative_path": "policy.json",
+    "before_sha256": "65a618a76651fb2010db03735798d0386a03095ccd0bd8617c95a0edc32b3ebc",
+    "after_sha256": "8b801165fc19693ac5fddca6a36984fc693d9373b65462fb4bb0a7d05739fab8"
+  },
+  {
+    "relative_path": "extract-prompt.txt",
+    "before_sha256": "c5fc00878c335f0db78eb03560e8d944b5b8caf9fe1c06ee27ef3eb8fccaf64c",
+    "after_sha256": "c500783cb42b5ed8622cf7e8a95d6afd5880fd7fd5269442f303a6b1679726b7"
+  },
+  {
+    "relative_path": "README.md",
+    "before_sha256": "518eaeb45ebc459e585976dc72c9fa0024fdb2e212cab7b373a8d79c61ef4a70",
+    "after_sha256": "b6b248f62a60d6ead84c307da49299909e6663fcaf5ab1ed04ca8d46a6e08ab1"
+  },
+  {
+    "relative_path": "tests/test_rules.py",
+    "before_sha256": "7e6747d7a80e8f8bee907fe621ba3c7d30370a70709af704bce6a75b61f48209",
+    "after_sha256": "fea260f9eced5a6f88d9479f0ac0b8793391d97f966b8922b355159f3da7462e"
+  }
+]

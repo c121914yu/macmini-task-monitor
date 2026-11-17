@@ -1,0 +1,29 @@
+--- a/rules.py
++++ b/rules.py
+@@ -111,0 +112,11 @@
++
++
++def payment_basis(purchase, policy):
++    """原始交易事实保持不变；明确人民币入账优先作为实付依据，拒绝猜测或使用预计换算。"""
++    currency, amount = purchase['currency'], purchase['paid_amount']
++    settled = purchase.get('settled_cny', '').strip()
++    if not policy.get('usd_orders_use_original_currency', True) and currency == 'USD' and settled:
++        if money(settled) <= 0:
++            raise Hold('人民币入账金额无效，需人工核验')
++        return 'CNY', settled
++    return currency, amount
+@@ -186 +197 @@
+-        currency = p['currency']
++        currency, paid_amount = payment_basis(p, policy)
+@@ -191 +202 @@
+-        if not p['paid_amount']:
++        if not paid_amount:
+@@ -195 +206 @@
+-        total = money(p['paid_amount'])
++        total = money(paid_amount)
+@@ -200 +211 @@
+-        # 以原交易币种为准：信用卡人民币入账不覆盖原美元交易。
++        # 实付人民币直接作为费用，不按美元订单重新计算；汇率仅用于现有美元等值额度核对。
+@@ -231 +242 @@
+-    actual_currencies = {p['currency'] for p in purchases}
++    actual_currencies = {payment_basis(p, policy)[0] for p in purchases}

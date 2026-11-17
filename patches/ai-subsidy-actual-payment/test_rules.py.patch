@@ -1,0 +1,55 @@
+--- a/tests/test_rules.py
++++ b/tests/test_rules.py
+@@ -30 +30 @@
+-        'cycle_months': cycle, 'paid_amount': amount, 'currency': currency, 'settled_cny': '133.46',
++        'cycle_months': cycle, 'paid_amount': amount, 'currency': currency, 'settled_cny': '',
+@@ -55 +55 @@
+-    def test_original_currency_and_cny_amount_are_independent_fields(self):
++    def test_usd_currency_and_converted_amount_without_cny_settlement(self):
+@@ -63,5 +63,41 @@
+-    def test_original_usd_not_bank_settled_cny(self):
+-        result = review(form('133.46', currency='人民币'))
+-        self.assertEqual(result['action'], 'reject')
+-        self.assertEqual(result['expected_cost_cny'],'134.29')
+-        self.assertTrue(any('币种' in r for r in result['reasons']))
++    def test_explicit_cny_settlement_uses_actual_amount_and_cny_unit(self):
++        e=facts();e['purchases'][0]['settled_cny']='133.46'
++        result=review(form('133.46',currency='人民币'),e)
++        self.assertEqual(result['action'],'approve')
++        self.assertEqual(result['monthly_full_cost_cny'],'133.46')
++        self.assertEqual(result['allocations'][0]['subsidy_cny'],'66.73')
++        self.assertIn('实际支付金额133.46元',comment_for(result,POLICY))
++        wrong=review(form('134.29',currency='美元'),e)
++        self.assertEqual(wrong['action'],'reject')
++        self.assertIn('支付币种填写有误，应选人民币',wrong['reasons'])
++        self.assertEqual(wrong['expected_cost_cny'],'133.46')
++        self.assertEqual(e['purchases'][0]['paid_amount'],'20.00')
++        self.assertEqual(e['purchases'][0]['currency'],'USD')
++
++    def test_cny_payment_cost_does_not_change_with_cap_exchange_rate(self):
++        e=facts();e['purchases'][0]['settled_cny']='133.46'
++        for rate in ['6','8']:
++            with self.subTest(rate=rate):
++                result=evaluate(form('133.46',currency='人民币'),e,POLICY,
++                    lambda month:{'date':month+'-02','usd_cny':rate},{},['paymenthash'],TODAY)
++                self.assertEqual(result['monthly_full_cost_cny'],'133.46')
++                self.assertEqual(result['allocations'][0]['subsidy_cny'],'66.73')
++
++    def test_cny_settlement_annual_amount_is_amortized_without_reconversion(self):
++        e=facts('1200',12,'2026-11-10','2027-11-10');e['purchases'][0]['settled_cny']='8000'
++        result=review(form('666.67',cycle='年度订阅',currency='人民币'),e)
++        self.assertEqual(result['action'],'approve')
++        self.assertEqual(result['monthly_full_cost_cny'],'666.67')
++        self.assertEqual(len(result['allocations']),12)
++        self.assertTrue(all(a['subsidy_cny']=='333.33' for a in result['allocations']))
++
++    def test_invalid_explicit_cny_settlement_is_held(self):
++        for amount in ['NaN','Infinity','bad','0','-1']:
++            e=facts();e['purchases'][0]['settled_cny']=amount
++            with self.subTest(amount=amount),self.assertRaises(Hold):review(form('133.46',currency='人民币'),e)
++
++    def test_old_policy_keeps_original_currency_for_historical_replay(self):
++        old={**POLICY,'usd_orders_use_original_currency':True}
++        e=facts();e['purchases'][0]['settled_cny']='133.46'
++        result=evaluate(form(),e,old,fx,{},['paymenthash'],TODAY)
++        self.assertEqual(result['monthly_full_cost_cny'],'134.29')

@@ -1,0 +1,11 @@
+--- a/policy.json
++++ b/policy.json
+@@ -2 +2 @@
+-  "version": "2026-11-13-v4",
++  "version": "2026-11-17-v5",
+@@ -8 +8 @@
+-  "usd_orders_use_original_currency": true,
++  "usd_orders_use_original_currency": false,
+@@ -68 +68 @@
+-  "form_currency_semantics": "original_payment_currency",
++  "form_currency_semantics": "actual_settlement_currency",
