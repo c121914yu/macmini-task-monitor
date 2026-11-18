@@ -1,0 +1,8 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1 +1 @@
+-仅在 Mac mini 运行。固定一个 worktree，目标版本由用户指定。先阅读 FastGPT 仓库 AGENTS.md 和 release-docs skill。扫描无任务不调用模型；每版本复用 FastGPT 项目会话，gpt-6.1-sol / xhigh，关闭 Fast。只修改目标升级文档、中英文导航和必要元数据。不得改产品、锁或部署 YAML。保留人工修改；不强推，不重置工作区。版本正式发布后通过专用 webhook 提醒指定下一版，不自动猜版本。异常主动尝试修复，最多 5 次、每小时重试；发布恢复必须先核对远端，不重复生成或创建 PR。Webhook 和凭据不能输出到日志。
++仅在 Mac mini 运行。固定一个 worktree，目标版本由用户指定。先阅读 FastGPT 仓库 AGENTS.md 和 release-docs skill。扫描无任务不调用模型；每版本复用 FastGPT 项目会话，gpt-6.2-sol / high，关闭 Fast。只修改目标升级文档、中英文导航和必要元数据。不得改产品、锁或部署 YAML。保留人工修改；不强推，不重置工作区。版本正式发布后通过专用 webhook 提醒指定下一版，不自动猜版本。异常主动尝试修复，最多 5 次、每小时重试；发布恢复必须先核对远端，不重复生成或创建 PR。Webhook 和凭据不能输出到日志。
+@@ -22,0 +23,2 @@
++
++- 文档任务模型独立固定为 gpt-6.2-sol / high，Fast 关闭；复用的 AppServer 仅提供登录和传输，不能继承自动 PR 审查的 xhigh 常量。不得为调整文档模型修改 PR 审查模型、全局模型设置或已有会话/轮次凭据。

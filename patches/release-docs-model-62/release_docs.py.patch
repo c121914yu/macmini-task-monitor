@@ -1,0 +1,20 @@
+--- a/release_docs.py
++++ b/release_docs.py
+@@ -21 +21 @@
+-from review_runner import AppServer, MODEL, EFFORT
++from review_runner import AppServer
+@@ -22,0 +23,4 @@
++
++# 文档任务独立选择模型，避免修改自动 PR 审查的共享配置。
++MODEL = 'gpt-6.2-sol'
++EFFORT = 'high'
+@@ -322,0 +327,6 @@
++    async def __aenter__(self):
++        """沿用原生登录及工具隔离，仅覆盖文档会话的推理级别并保持 Fast 关闭。"""
++        await super().__aenter__()
++        self.config.update({'model_reasoning_effort': EFFORT, 'features.fast_mode': False})
++        return self
++
+@@ -712 +722 @@
+-            raise RuntimeError('实际模型配置不符 gpt-6.1-sol / xhigh / standard')
++            raise RuntimeError(f'实际模型配置不符 {MODEL} / {EFFORT} / standard')
