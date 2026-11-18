@@ -1,0 +1,19 @@
+--- a/rules.py
++++ b/rules.py
+@@ -40,0 +41,6 @@
++
++
++def field_matches(field, spec):
++    """只兼容已核验的名称别名；字段 ID 由调用者精确定位，类型变化仍须停止审核。"""
++    return (field.get('name') in [spec['name'], *spec.get('aliases', [])]
++            and field.get('type') == spec['type'])
+@@ -53 +59 @@
+-        if field.get('name') != spec['name'] or field.get('type') != spec['type']:
++        if not field_matches(field, spec):
+@@ -67 +73 @@
+-        if field.get('name') != spec['name'] or field.get('type') != spec['type']:
++        if not field_matches(field, spec):
+@@ -74,0 +81,3 @@
++        # 旧实例根本没有新增控件时保留兼容；新实例控件存在却为空仍按缺项处理。
++        if policy['fields'][key].get('optional_for_legacy') and form.get(key) is None:
++            continue

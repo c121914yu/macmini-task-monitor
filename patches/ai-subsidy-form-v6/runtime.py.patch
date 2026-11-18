@@ -1,0 +1,5 @@
+--- a/runtime.py
++++ b/runtime.py
+@@ -248 +248 @@
+-    description = {'plan': form['plan'], 'manifest': [{'role': m['role'], 'sha256': m['sha256']} for m in manifest]}
++    description = {'plan': form['plan'], 'listed_subscription_price': form.get('official_price') or '', 'manifest': [{'role': m['role'], 'sha256': m['sha256']} for m in manifest]}

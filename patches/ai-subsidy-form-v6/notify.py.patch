@@ -1,0 +1,5 @@
+--- a/notify.py
++++ b/notify.py
+@@ -48,0 +49,2 @@
++    if errors and not items and report.get('pending_count') is None:
++        header = '本轮尚未进入待办审核，未执行审批操作'

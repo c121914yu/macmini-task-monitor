@@ -1,0 +1,30 @@
+--- a/policy.json
++++ b/policy.json
+@@ -2 +2 @@
+-  "version": "2026-11-17-v5",
++  "version": "2026-11-18-v6",
+@@ -37 +37,4 @@
+-      "name": "付费周期"
++      "name": "订阅周期",
++      "aliases": [
++        "付费周期"
++      ]
+@@ -42 +45,4 @@
+-      "name": "支付日期"
++      "name": "实际支付日期",
++      "aliases": [
++        "支付日期"
++      ]
+@@ -47 +53,4 @@
+-      "name": "支付币种"
++      "name": "实际支付币种",
++      "aliases": [
++        "支付币种"
++      ]
+@@ -62,0 +72,6 @@
++    },
++    "official_price": {
++      "id": "widget17948865885360001",
++      "type": "textarea",
++      "name": "官网标明的本次订阅价格（带单位）",
++      "optional_for_legacy": true

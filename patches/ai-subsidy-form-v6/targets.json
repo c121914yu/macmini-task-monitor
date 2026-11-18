@@ -1,0 +1,32 @@
+[
+  {
+    "relative_path": "rules.py",
+    "before_sha256": "66cc242c26af0ed5d5b02fdfcbf149e5fa28178912a2379bd5e300c267ea333a",
+    "after_sha256": "ba0cded2a4d36a32d67e23c05c28e462939c2087e4bf37f1e0580fd696839783"
+  },
+  {
+    "relative_path": "runtime.py",
+    "before_sha256": "354855703567c8f3ef99a764b69f33af248dea1ca514a695dbe1e743ca8cb42f",
+    "after_sha256": "54b9218f95a6eafa97629fb2bb4af2f9c45f6ea2984bd4d5c693052247d58ff0"
+  },
+  {
+    "relative_path": "notify.py",
+    "before_sha256": "341fbfb712a1e9e524e2f1b9cbf899b920ce3e352fd211a7d66a6c4abd3858f7",
+    "after_sha256": "735440f98ad1b05a81f623c36f0d701d7d6447da190b9f856d5868d03b5d37bd"
+  },
+  {
+    "relative_path": "policy.json",
+    "before_sha256": "8b801165fc19693ac5fddca6a36984fc693d9373b65462fb4bb0a7d05739fab8",
+    "after_sha256": "cabe98a25333692882f7c7b785a300d190982d056829fc8143dd2c0b88df85ee"
+  },
+  {
+    "relative_path": "extract-prompt.txt",
+    "before_sha256": "c500783cb42b5ed8622cf7e8a95d6afd5880fd7fd5269442f303a6b1679726b7",
+    "after_sha256": "2692a54f572f550c60a191debbf6d4b2447616870596ddeb3a75c3dbd103a716"
+  },
+  {
+    "relative_path": "README.md",
+    "before_sha256": "b6b248f62a60d6ead84c307da49299909e6663fcaf5ab1ed04ca8d46a6e08ab1",
+    "after_sha256": "c748386ee981144dd3f477766fea75528058cacfd98c072561ffc91f327056a6"
+  }
+]
