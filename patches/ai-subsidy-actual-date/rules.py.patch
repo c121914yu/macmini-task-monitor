@@ -1,0 +1,147 @@
+--- a/rules.py
++++ b/rules.py
+@@ -10,0 +11,4 @@
++ACTUAL_PAYMENT_AMOUNT = 'actual_total_in_payment_currency'
++LEGACY_PAYMENT_AMOUNT = 'monthly_full_cost_cny_before_subsidy_and_cap'
++CURRENCY_LABELS = {'USD': '美元', 'CNY': '人民币'}
++PAYMENT_UNITS = {'USD': '美元', 'CNY': '元'}
+@@ -95,4 +99,6 @@
+-    if paid < date(policy['effective_payment_date']):
+-        errors.append('支付日期早于2026-11-01，不在补贴范围')
+-    if paid > today:
+-        errors.append('支付日期不能晚于审核当天')
++    actual_amount = policy.get('form_amount_semantics') == ACTUAL_PAYMENT_AMOUNT
++    if not actual_amount:
++        if paid < date(policy['effective_payment_date']):
++            errors.append('支付日期早于2026-11-01，不在补贴范围')
++        if paid > today:
++            errors.append('支付日期不能晚于审核当天')
+@@ -100 +106 @@
+-        errors.append('请填写大于零的每月人民币费用')
++        errors.append('请填写大于零的实际支付金额' if actual_amount else '请填写大于零的每月人民币费用')
+@@ -153 +159 @@
+-    expected = D(0)
++    actual_amount = policy.get('form_amount_semantics') == ACTUAL_PAYMENT_AMOUNT
+@@ -156 +162 @@
+-    pending = []
++    payments = []
+@@ -158,0 +165 @@
++    actual_currencies = set()
+@@ -201 +208,4 @@
+-            errors.append('表单支付日期与支付凭证不一致')
++            if actual_amount:
++                errors.append('实际支付日期与凭证不一致，应填' + paid.isoformat())
++            else:
++                errors.append('表单支付日期与支付凭证不一致')
+@@ -206,0 +217 @@
++        actual_currencies.add(currency)
+@@ -220,6 +230,0 @@
+-        # 实付人民币直接作为费用，不按美元订单重新计算；汇率仅用于现有美元等值额度核对。
+-        rate = fx(paid.strftime('%Y-%m'))
+-        cny_total = total * money(rate['usd_cny']) if currency == 'USD' else total
+-        usd_total = total if currency == 'USD' else total / money(rate['usd_cny'])
+-        monthly_cny, monthly_usd = cny_total / cycle, usd_total / cycle
+-        expected += monthly_cny
+@@ -241,7 +246,2 @@
+-        # 每个订阅覆盖月一次分摊；按服务起始月起计，勿额外计入到期月。
+-        for offset in range(cycle):
+-            month = month_add(start.replace(day=1), offset).strftime('%Y-%m')
+-            pending.append({'month': month, 'cost_usd': str(monthly_usd),
+-                            'cost_cny': str(monthly_cny), 'fx_date': rate['date'],
+-                            'usd_cny': rate['usd_cny'], 'payment_month': paid.strftime('%Y-%m'),
+-                            'product': p['product']})
++        payments.append({'start': start, 'paid': paid, 'cycle': cycle, 'total': total,
++                         'currency': currency, 'product': p['product']})
+@@ -251 +250,0 @@
+-    actual_currencies = {payment_basis(p, policy)[0] for p in purchases}
+@@ -253,2 +252,5 @@
+-    if 'UNKNOWN' not in actual_currencies and actual_currencies != {declared}:
+-        label = {'USD': '美元', 'CNY': '人民币'}.get(next(iter(actual_currencies)), '') if len(actual_currencies) == 1 else ''
++    single_currency = next(iter(actual_currencies)) if len(actual_currencies) == 1 else None
++    if actual_amount and actual_currencies == {'USD', 'CNY'}:
++        errors.append('同一申请包含人民币和美元付款，请按实际支付币种分别提交')
++    elif actual_currencies and 'UNKNOWN' not in actual_currencies and actual_currencies != {declared}:
++        label = CURRENCY_LABELS.get(single_currency, '')
+@@ -257,2 +259,33 @@
+-    if amount_complete and actual_currencies <= {'USD', 'CNY'} and money(form['amount']).quantize(CENT, rounding=ROUND_HALF_UP) != expected.quantize(CENT, rounding=ROUND_HALF_UP):
+-        errors.append('金额换算或分摊有误')
++
++    def monthly_costs():
++        # 按凭证付款月取汇率，按各订阅覆盖月分摊。人民币只为美元等值额度折算。
++        rates, pending = {}, []
++        full_cost_cny = D(0)
++        for payment in payments:
++            payment_month = payment['paid'].strftime('%Y-%m')
++            if payment_month not in rates:
++                rates[payment_month] = fx(payment_month)
++            rate = rates[payment_month]
++            usd_cny = money(rate['usd_cny'])
++            total, cycle = payment['total'], payment['cycle']
++            is_usd = payment['currency'] == 'USD'
++            monthly_cny = (total * usd_cny if is_usd else total) / cycle
++            monthly_usd = (total if is_usd else total / usd_cny) / cycle
++            full_cost_cny += monthly_cny
++            for offset in range(payment['cycle']):
++                month = month_add(payment['start'].replace(day=1), offset).strftime('%Y-%m')
++                pending.append({'month': month, 'cost_usd': str(monthly_usd),
++                                'cost_cny': str(monthly_cny), 'fx_date': rate['date'],
++                                'usd_cny': rate['usd_cny'], 'payment_month': payment_month,
++                                'product': payment['product']})
++        return full_cost_cny, pending
++
++    if actual_amount:
++        expected = sum((p['total'] for p in payments), D(0))
++        amount_checkable = amount_complete and single_currency in CURRENCY_LABELS
++    else:
++        full_cost_cny, pending = monthly_costs()
++        expected = full_cost_cny
++        amount_checkable = amount_complete and bool(actual_currencies) and actual_currencies <= CURRENCY_LABELS.keys()
++    if amount_checkable and rounded(money(form['amount'])) != rounded(expected):
++        errors.append('实际支付金额与凭证不一致' if actual_amount else '金额换算或分摊有误')
+@@ -264 +297,12 @@
+-        if financial_mismatch and amount_complete and reference_allowed:
++        if actual_amount:
++            reference_allowed = reference_allowed and all(
++                date(policy['effective_payment_date']) <= payment['paid'] <= today for payment in payments)
++        if financial_mismatch and amount_checkable and reference_allowed:
++            if actual_amount:
++                # 表单修正值来自凭证，即使汇率暂不可用也可以给出。
++                result = {**reject(errors), 'expected_payment_amount': rounded(expected),
++                          'payment_currency': single_currency}
++                try:
++                    _, pending = monthly_costs()
++                except Hold:
++                    return result
+@@ -273,0 +318,2 @@
++            if actual_amount:
++                return {**result, 'reference_subsidy_cny': rounded(reference)}
+@@ -277,0 +324,2 @@
++    if actual_amount:
++        full_cost_cny, pending = monthly_costs()
+@@ -298,2 +346,6 @@
+-    return {'action': 'approve', 'reasons': [], 'allocations': allocations,
+-            'keys': sorted(set(keys)), 'monthly_full_cost_cny': rounded(expected)}
++    result = {'action': 'approve', 'reasons': [], 'allocations': allocations,
++              'keys': sorted(set(keys)), 'monthly_full_cost_cny': rounded(full_cost_cny)}
++    if actual_amount:
++        result.update(payment_currency=single_currency, actual_payment_amount=rounded(expected),
++                      actual_payment_date=payments[0]['paid'].isoformat())
++    return result
+@@ -305,2 +357,8 @@
+-        if 'expected_cost_cny' in result:
+-            text += '实际支付金额应填' + result['expected_cost_cny'] + '元；50%补贴参考' + result['reference_subsidy_cny'] + '元/月。'
++        if 'expected_payment_amount' in result:
++            text += '实际支付金额应填' + result['expected_payment_amount'] + PAYMENT_UNITS[result['payment_currency']] + '。'
++        elif 'expected_cost_cny' in result:
++            text += '实际支付金额应填' + result['expected_cost_cny'] + '元'
++        if 'reference_subsidy_cny' in result:
++            if 'expected_cost_cny' in result:
++                text += '；'
++            text += '50%补贴参考' + result['reference_subsidy_cny'] + '元/月。'
+@@ -313 +371,5 @@
+-    return '审核通过。实际支付金额' + result['monthly_full_cost_cny'] + '元；' + '；'.join(lines) + '，按月随工资发放。'
++    payment = result['monthly_full_cost_cny'] + '元；'
++    if 'actual_payment_amount' in result:
++        payment = result['actual_payment_amount'] + PAYMENT_UNITS[result['payment_currency']]
++        payment += '（' + result['actual_payment_date'] + '）。'
++    return '审核通过。实际支付金额' + payment + '；'.join(lines) + '，按月随工资发放。'

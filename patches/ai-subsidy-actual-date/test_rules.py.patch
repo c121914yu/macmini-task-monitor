@@ -1,0 +1,121 @@
+--- a/tests/test_rules.py
++++ b/tests/test_rules.py
+@@ -8 +8 @@
+-from rules import Hold, D, evaluate, money, read_form, precheck, comment_for, month_add
++from rules import Hold, D, LEGACY_PAYMENT_AMOUNT, evaluate, money, read_form, precheck, comment_for, month_add
+@@ -20 +20 @@
+-def form(amount='134.29', cycle='月度订阅', paid='2026-11-10', currency='美元'):
++def form(amount='20.00', cycle='月度订阅', paid='2026-11-10', currency='美元'):
+@@ -46 +46 @@
+-        self.assertIn('实际支付金额134.29元',comment_for(result,POLICY))
++        self.assertIn('实际支付金额20.00美元（2026-11-10）',comment_for(result,POLICY))
+@@ -51 +51 @@
+-        self.assertEqual(result['expected_cost_cny'],'134.29')
++        self.assertEqual(result['expected_payment_amount'],'20.00')
+@@ -53,9 +53,6 @@
+-        self.assertEqual(result['reasons'],['金额换算或分摊有误'])
+-
+-    def test_usd_currency_and_converted_amount_without_cny_settlement(self):
+-        result=review(form('134.29',currency='人民币'))
+-        self.assertEqual(result['action'],'reject')
+-        self.assertEqual(result['reasons'],['支付币种填写有误，应选美元'])
+-        result=review(form('134.29',currency='美元'))
+-        self.assertEqual(result['action'],'approve')
+-        self.assertEqual(result['allocations'][0]['subsidy_cny'],'67.15')
++        self.assertEqual(result['reasons'],['实际支付金额与凭证不一致'])
++
++    def test_usd_form_uses_raw_usd_amount_without_cny_settlement(self):
++        self.assertEqual(review(form('20',currency='人民币'))['reasons'],['支付币种填写有误，应选美元'])
++        self.assertEqual(review(form('134.29',currency='美元'))['reasons'],['实际支付金额与凭证不一致'])
++        self.assertEqual(review(form('20',currency='美元'))['allocations'][0]['subsidy_cny'],'67.15')
+@@ -73 +70 @@
+-        self.assertEqual(wrong['expected_cost_cny'],'133.46')
++        self.assertEqual(wrong['expected_payment_amount'],'133.46')
+@@ -88 +85 @@
+-        result=review(form('666.67',cycle='年度订阅',currency='人民币'),e)
++        result=review(form('8000',cycle='年度订阅',currency='人民币'),e)
+@@ -100 +97 @@
+-        old={**POLICY,'usd_orders_use_original_currency':True}
++        old={**POLICY,'usd_orders_use_original_currency':True,'form_amount_semantics':LEGACY_PAYMENT_AMOUNT}
+@@ -102 +99 @@
+-        result=evaluate(form(),e,old,fx,{},['paymenthash'],TODAY)
++        result=evaluate(form('134.29'),e,old,fx,{},['paymenthash'],TODAY)
+@@ -105,4 +102,31 @@
+-    def test_all_november_payments_allowed_october_rejected(self):
+-        self.assertEqual(precheck(form(paid='2026-11-01'), POLICY, TODAY), [])
+-        self.assertTrue(precheck(form(paid='2026-10-31'), POLICY, TODAY))
+-        self.assertTrue(precheck(form(paid='2026-11-14'), POLICY, TODAY))
++    def test_eligibility_uses_receipt_date_and_correction_does_not_fetch_fx(self):
++        for day, expected in [('2026-11-01','approve'),('2026-10-31','reject'),('2026-11-14','reject')]:
++            with self.subTest(day=day):
++                e=facts(start='',end='');e['purchases'][0]['payment_date']=day
++                self.assertEqual(review(form(paid=day),e)['action'], expected)
++        e=facts(start='',end='')
++        result=evaluate(form(paid='2026-12-01'),e,POLICY,
++                        lambda month: self.fail('date correction must come from the receipt'),
++                        {},['paymenthash'],TODAY)
++        self.assertIn('实际支付日期与凭证不一致，应填2026-11-10',result['reasons'])
++
++    def test_usd_fx_uses_receipt_month_across_coverage_boundary(self):
++        e=facts(start='2026-12-01',end='2027-01-01')
++        e['purchases'][0]['payment_date']='2026-11-30'
++        months=[]
++        def record_fx(month):
++            months.append(month)
++            return fx(month)
++        result=evaluate(form(paid='2026-11-30'),e,POLICY,record_fx,{},['paymenthash'],dt.date(2026,12,2))
++        self.assertEqual(months,['2026-11'])
++        self.assertEqual(result['allocations'][0]['month'],'2026-12')
++
++    def test_cny_amount_correction_available_without_fx(self):
++        def missing_fx(month):
++            raise Hold('汇率服务不可用')
++        result=evaluate(form('20',currency='美元'),facts('134',currency='CNY'),
++                        POLICY,missing_fx,{},['paymenthash'],TODAY)
++        self.assertEqual(result['action'],'reject')
++        self.assertEqual(result['expected_payment_amount'],'134.00')
++        self.assertIn('实际支付金额应填134.00元',comment_for(result,POLICY))
++        self.assertNotIn('reference_subsidy_cny', result)
+@@ -111 +135 @@
+-        result = review(form('1678.65'), facts('250'))
++        result = review(form('250'), facts('250'))
+@@ -122,2 +146,2 @@
+-    def test_annual_1200_not_lump_sum_and_all_months_count(self):
+-        result = review(form('671.46', cycle='年度订阅'), facts('1200',12,'2026-11-10','2027-11-10'))
++    def test_annual_payment_uses_receipt_total_and_prorates_subsidy(self):
++        result = review(form('1200', cycle='年度订阅'), facts('1200',12,'2026-11-10','2027-11-10'))
+@@ -132 +156 @@
+-        result = review(form('671.46',cycle='年度订阅'), facts('1200',12,'2026-11-10','2027-11-10'),
++        result = review(form('1200',cycle='年度订阅'), facts('1200',12,'2026-11-10','2027-11-10'),
+@@ -136,2 +160,2 @@
+-    def test_quarterly_as_form_instructions_monthly_amortized(self):
+-        result = review(form('134.29',cycle='季度订阅'), facts('60',3,'2026-11-10','2027-02-10'))
++    def test_quarterly_raw_amount_monthly_amortized(self):
++        result = review(form('60',cycle='季度订阅'), facts('60',3,'2026-11-10','2027-02-10'))
+@@ -148 +172 @@
+-        e=facts('1200',12,'','');f=form('671.46',cycle='年度订阅')
++        e=facts('1200',12,'','');f=form('1200',cycle='年度订阅')
+@@ -160 +184 @@
+-        result=review(form('671.46',cycle='年度订阅'),facts('1200',0,'',''))
++        result=review(form('1200',cycle='年度订阅'),facts('1200',0,'',''))
+@@ -170 +194 @@
+-        self.assertEqual(result['expected_cost_cny'],'134.29')
++        self.assertEqual(result['expected_payment_amount'],'20.00')
+@@ -177 +201 @@
+-        self.assertEqual(result['expected_cost_cny'],'671.46')
++        self.assertEqual(result['expected_payment_amount'],'1200.00')
+@@ -183 +207 @@
+-    def test_rejection_is_short_reason_and_correct_monthly_amount(self):
++    def test_rejection_is_short_reason_and_correct_paid_amount(self):
+@@ -188 +212 @@
+-        self.assertEqual(comment,'支付币种填写有误，应选美元；金额换算或分摊有误。实际支付金额应填134.29元；50%补贴参考67.15元/月。')
++        self.assertEqual(comment,'支付币种填写有误，应选美元；实际支付金额与凭证不一致。实际支付金额应填20.00美元。50%补贴参考67.15元/月。')
+@@ -214,3 +238,5 @@
+-        result=review(form('100',currency='人民币'),facts('100',currency='CNY'))
+-        self.assertEqual(result['action'],'approve')
+-        self.assertEqual(result['allocations'][0]['subsidy_cny'],'50.00')
++        result=review(form('134',currency='人民币'),facts('134',currency='CNY'))
++        self.assertEqual(result['action'],'approve')
++        self.assertEqual(result['actual_payment_amount'],'134.00')
++        self.assertEqual(result['actual_payment_date'],'2026-11-10')
++        self.assertEqual(result['allocations'][0]['subsidy_cny'],'67.00')

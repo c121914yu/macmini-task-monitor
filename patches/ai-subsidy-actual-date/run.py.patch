@@ -1,0 +1,10 @@
+--- a/run.py
++++ b/run.py
+@@ -16 +16 @@
+-                   comment_for, receipt_keys, reject)
++                   comment_for, receipt_keys, reject, ACTUAL_PAYMENT_AMOUNT, LEGACY_PAYMENT_AMOUNT)
+@@ -122,0 +123,4 @@
++                if result['action'] != 'approve' and self.policy.get('form_amount_semantics') == ACTUAL_PAYMENT_AMOUNT:
++                    # 历史已通过单据可能按旧表单填每月人民币费用。仅在恢复历史额度时兼容。
++                    legacy_policy = {**self.policy, 'form_amount_semantics': LEGACY_PAYMENT_AMOUNT}
++                    result = evaluate(form, facts, legacy_policy, self.fx, {}, hashes, self.today)

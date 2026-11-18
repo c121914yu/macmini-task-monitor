@@ -1,0 +1,37 @@
+[
+  {
+    "relative_path": "rules.py",
+    "before_sha256": "ba0cded2a4d36a32d67e23c05c28e462939c2087e4bf37f1e0580fd696839783",
+    "after_sha256": "7f24a53fb322e5b5eff308810bb07a85075308f918f520aff7071ad32bdd01e9"
+  },
+  {
+    "relative_path": "run.py",
+    "before_sha256": "a3bb5804b4db36f10db06ac119e6e08d704b7bfbee972e0163fa6f3bea565ff2",
+    "after_sha256": "ac3b3453dfd183c394b45f4f941bd3cb11f594ff849e17f4e4a350b9c1865a29"
+  },
+  {
+    "relative_path": "policy.json",
+    "before_sha256": "cabe98a25333692882f7c7b785a300d190982d056829fc8143dd2c0b88df85ee",
+    "after_sha256": "e2bcbb3b64c30321c2dc99b1c0156721e614bc9f7f6626e5698362ad19379117"
+  },
+  {
+    "relative_path": "extract-prompt.txt",
+    "before_sha256": "2692a54f572f550c60a191debbf6d4b2447616870596ddeb3a75c3dbd103a716",
+    "after_sha256": "b759867b4e25d5a4537116966a510617c51efe3c1c6c9d7b7285ec8eac576fd3"
+  },
+  {
+    "relative_path": "README.md",
+    "before_sha256": "c748386ee981144dd3f477766fea75528058cacfd98c072561ffc91f327056a6",
+    "after_sha256": "19e29ff7b9fbd918f8693d5d995bf21b2d1d8d393e58dd5efd3a0a1984a9bcac"
+  },
+  {
+    "relative_path": "tests/test_rules.py",
+    "before_sha256": "fea260f9eced5a6f88d9479f0ac0b8793391d97f966b8922b355159f3da7462e",
+    "after_sha256": "648fe1d97b9082ce3e9e5802b05e67dc8f9b6c1613b65323a9a074881373c69a"
+  },
+  {
+    "relative_path": "tests/test_runtime.py",
+    "before_sha256": "fbd8232f359592832d77d6ee8a1c8aed51dff291ee404a8ef188d2e2e765b893",
+    "after_sha256": "8dc6620da6d29bd596b4dd5ac20860b24d0d0fe3ffb3a0af32f55ba0b3791b31"
+  }
+]

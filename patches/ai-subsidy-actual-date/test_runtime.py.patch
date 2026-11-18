@@ -1,0 +1,28 @@
+--- a/tests/test_runtime.py
++++ b/tests/test_runtime.py
+@@ -13 +13 @@
+-from test_rules import POLICY, form, facts, review
++from test_rules import POLICY, TODAY, form, facts, fx, review
+@@ -73,0 +74,22 @@
++    def test_history_can_rebuild_old_monthly_cny_entry_without_changing_pending_rules(self):
++        with tempfile.TemporaryDirectory() as root:
++            worker = self.worker(root)
++            worker.today, worker.fx = TODAY, fx
++            values = {**form('134.29'), 'subscription_images': ['https://a.feishucdn.com/s'],
++                      'payment_images': ['https://a.feishucdn.com/p']}
++            fields = []
++            for key, spec in POLICY['fields'].items():
++                if key in values:
++                    fields.append({'id': spec['id'], 'type': spec['type'], 'name': spec['name'],
++                                   'open_ids': values['person'] if key == 'person' else [],
++                                   'value': values[key]})
++            instance = {'definition_code': POLICY['approval_code'], 'status': 'APPROVED', 'form': fields}
++            with patch.object(worker.api, 'tasks', return_value=[{'instance_code': 'old'}]), \
++                 patch.object(worker.api, 'detail', return_value=instance), \
++                 patch.object(worker, 'facts', return_value=(facts(), ['paymenthash'])):
++                worker.history()
++            totals, _, unknown = worker.occupancy('person-a', 'pending')
++            self.assertEqual(totals['2026-11'], 20)
++            self.assertEqual(unknown, [])
++            self.assertEqual(review(form('134.29'))['action'], 'reject')
++

@@ -1,0 +1,8 @@
+--- a/policy.json
++++ b/policy.json
+@@ -2 +2 @@
+-  "version": "2026-11-18-v6",
++  "version": "2026-11-18-v7",
+@@ -12 +12 @@
+-  "form_amount_semantics": "monthly_full_cost_cny_before_subsidy_and_cap",
++  "form_amount_semantics": "actual_total_in_payment_currency",
